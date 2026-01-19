@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dependencies = ["jax"]
+dynamic = ["version"]
+license = "BSD-3-Clause"
+name = "lorem-jax"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+python_files = ["*.py"]
+testpaths = ["tests"]
+addopts = [
+    "--cov",
+    "--cov-append",
+    "--cov-report=",
+    "--import-mode=append",
+]
+filterwarnings = ["error"]
+
+[tool.ruff]
+exclude = ["src/loremjax/_version.py"]
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = [
+    "B",  # Pyflakes checks (e.g., unused imports, undefined variables)
+    "E",  # Pycodestyle errors (e.g., indentation, whitespace, syntax)
+    "UP",  # PyUpgrade rules (e.g., upgrading to modern Python syntax)
+    "I",  # Import conventions (e.g., sorting imports, duplicate imports)
+    "SIM",  # Simplification suggestions (e.g., refactoring redundant code)
+    "PT",  # Pytest style rules (e.g., avoiding assert in tests)
+    "RET",  # Return statements consistency (e.g., avoiding multiple return paths)
+    "W",  # Warnings about style (e.g., trailing whitespace, blank lines)
+    "Q",  # Quotes consistency (e.g., single vs. double quotes)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/{tests,docs,examples}/*" = ["D1"]  # Don't require any docstrings in these directories
+
+[tool.ruff.lint.isort]
+known-first-party = ["loremjax"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.setuptools_scm]
+version_file = "src/loremjax/_version.py"
+
+[tool.setuptools.packages.find]
+where = ["src"]

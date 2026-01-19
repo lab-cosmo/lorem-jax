@@ -1,0 +1,14 @@
+*.pyc
+*.ipynb_checkpoints*
+__pycache__
+*.egg-info
+*.swp
+*.swo
+*DS_Store
+*coverage*
+_version.py
+*.gz
+
+.tox/
+build/
+dist/
