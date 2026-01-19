@@ -3,11 +3,18 @@ requires = ["setuptools>=45", "setuptools_scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-dependencies = ["jax"]
+dependencies = [
+    "ase",
+    "jax",
+    "ipi",
+]
 dynamic = ["version"]
 license = "BSD-3-Clause"
 name = "lorem-jax"
 requires-python = ">=3.11"
+
+[project.scripts]
+loremjax-install-ipi-driver = "loremjax.dynamics._install_ipi_driver:install_ipi_driver"
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]
