@@ -8,7 +8,14 @@ from collections.abc import Sequence
 import e3x
 import flax.linen as nn
 from flax.core import FrozenDict
-from marathon.utils import masked
+
+
+def _masked(fn, x, mask):
+    """Apply fn only where mask is True. Lazy import from marathon."""
+    from marathon.utils import masked
+
+    return masked(fn, x, mask)
+
 
 # -- initial embeddings --
 
@@ -123,14 +130,14 @@ class Update(nn.Module):
 
     @nn.compact
     def __call__(self, x, y, atom_mask):
-        x += masked(
+        x += _masked(
             MLP(features=[2 * self.features, self.features]),
             y,
             atom_mask,
         )
-        x = masked(nn.LayerNorm(), x, atom_mask)
-        x += masked(MLP(features=[2 * self.features, self.features]), x, atom_mask)
-        x = masked(nn.LayerNorm(), x, atom_mask)
+        x = _masked(nn.LayerNorm(), x, atom_mask)
+        x += _masked(MLP(features=[2 * self.features, self.features]), x, atom_mask)
+        x = _masked(nn.LayerNorm(), x, atom_mask)
 
         return x
 
@@ -145,7 +152,7 @@ class RadialCoefficients(nn.Module):
     def __call__(self, pair_features, radial_expansion, cutoffs, pair_mask):
         num_radial = radial_expansion.shape[-1]
 
-        coefficients = masked(
+        coefficients = _masked(
             MLP(
                 features=[
                     self.features,
