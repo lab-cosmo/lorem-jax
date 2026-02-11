@@ -4,7 +4,6 @@ import jax.numpy as jnp
 import e3x
 import flax.linen as nn
 from jaxpme.batched_mixed import Ewald
-from marathon.utils import masked
 
 from lorem.models.backbone import (
     MLP,
@@ -13,6 +12,9 @@ from lorem.models.backbone import (
     Update,
     degree_wise_repeat_last_axis,
     spherical_norm_last_axis,
+)
+from lorem.models.backbone import (
+    _masked as masked,
 )
 from lorem.transforms import ToBatch, ToSample
 
