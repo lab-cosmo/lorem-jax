@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ipi.pes.ase import ASEDriver
 
-from loremjax import LOREMCalculator
+from lorem import LOREMCalculator
 
 __DRIVER_NAME__ = "lorem"
 __DRIVER_CLASS__ = "LOREM_driver"
