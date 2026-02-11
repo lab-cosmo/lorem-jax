@@ -9,9 +9,10 @@ dependencies = [
     "flax",
     "ipi",
     "jax",
+    "jaxpme @ git+https://github.com/lab-cosmo/jax-pme.git",
     "jaxtyping",
     "optax",
-    # comms, jaxpme, and marathon are local deps, install separately
+    # comms and marathon are local deps, install separately
 ]
 dynamic = ["version"]
 license = "BSD-3-Clause"
