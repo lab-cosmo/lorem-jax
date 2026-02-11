@@ -9,7 +9,7 @@ dependencies = [
     "flax",
     "ipi",
     "jax",
-    "jaxpme @ git+https://github.com/lab-cosmo/jax-pme.git",
+    "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
     "jaxtyping",
     "optax",
     # comms and marathon are local deps, install separately
