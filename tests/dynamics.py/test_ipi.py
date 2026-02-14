@@ -35,7 +35,7 @@ def test_install_via_cli(clean_driver: Path):
     target_path = clean_driver
 
     subprocess.run(
-        ["loremjax-install-ipi-driver"],
+        ["lorem-install-ipi-driver"],
         check=True,
         capture_output=True,
         text=True,

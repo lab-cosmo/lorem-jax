@@ -5,8 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 dependencies = [
     "ase",
-    "jax",
+    "e3x",
+    "flax",
     "ipi",
+    "jax",
+    "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
+    "jaxtyping",
+    "optax",
+    # comms and marathon are local deps, install separately
 ]
 dynamic = ["version"]
 license = "BSD-3-Clause"
@@ -14,7 +20,8 @@ name = "lorem-jax"
 requires-python = ">=3.11"
 
 [project.scripts]
-loremjax-install-ipi-driver = "loremjax.dynamics._install_ipi_driver:install_ipi_driver"
+lorem-install-ipi-driver = "lorem.dynamics._install_ipi_driver:install_ipi_driver"
+lorem-train = "lorem.train:main"
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]
@@ -28,33 +35,40 @@ addopts = [
 filterwarnings = ["error"]
 
 [tool.ruff]
-exclude = ["src/loremjax/_version.py"]
-line-length = 88
+exclude = ["src/lorem/_version.py"]
+line-length = 92
 
 [tool.ruff.lint]
-extend-select = [
-    "B",  # Pyflakes checks (e.g., unused imports, undefined variables)
-    "E",  # Pycodestyle errors (e.g., indentation, whitespace, syntax)
-    "UP",  # PyUpgrade rules (e.g., upgrading to modern Python syntax)
-    "I",  # Import conventions (e.g., sorting imports, duplicate imports)
-    "SIM",  # Simplification suggestions (e.g., refactoring redundant code)
-    "PT",  # Pytest style rules (e.g., avoiding assert in tests)
-    "RET",  # Return statements consistency (e.g., avoiding multiple return paths)
-    "W",  # Warnings about style (e.g., trailing whitespace, blank lines)
-    "Q",  # Quotes consistency (e.g., single vs. double quotes)
+select = [
+    "E",   # pycodestyle
+    "F",   # Pyflakes
+    "UP",  # pyupgrade
+    "I",   # isort
 ]
 
+# E501: don't worry about line length (the formatter will take care of it)
+# E741: don't worry about short variable names
+# E731: don't worry about lambdas
+# E402: we're ok with importing in arbitrary places (for inline testing and scripts)
+ignore = ["E741", "E731", "E402", "E501"]
+
 [tool.ruff.lint.per-file-ignores]
-"**/{tests,docs,examples}/*" = ["D1"]  # Don't require any docstrings in these directories
+"**/{tests,docs,examples}/*" = ["D1"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["loremjax"]
+known-first-party = ["lorem"]
+section-order = ["numpy", "jax", "future", "standard-library", "third-party", "first-party", "local-folder"]
+no-lines-before = ["jax", "numpy"]
+
+[tool.ruff.lint.isort.sections]
+"numpy" = ["numpy"]
+"jax" = ["jax", "jax.numpy"]
 
 [tool.ruff.format]
 docstring-code-format = true
 
 [tool.setuptools_scm]
-version_file = "src/loremjax/_version.py"
+version_file = "src/lorem/_version.py"
 
 [tool.setuptools.packages.find]
 where = ["src"]
