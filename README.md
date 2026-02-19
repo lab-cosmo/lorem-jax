@@ -12,7 +12,7 @@ Requires Python >= 3.11.
 pip install .
 ```
 
-The package depends on `marathon` and `comms` for training. These are not yet publicly released and must be installed separately. The core model can be imported without them.
+Note: At the moment you need `marathon-dev` from `https://github.com/sirmarcel/marathon-dev` on the `hermes-reorg` branch. This will be fixed soon. 
 
 ## Usage
 
