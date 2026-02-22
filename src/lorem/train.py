@@ -69,9 +69,9 @@ def main():
     workdir = "run"
 
     use_wandb = settings.pop("use_wandb", True)
-    # used for wandb -- use folder names by default
-    wandb_project = None
-    wandb_name = None
+    # used for wandb -- use folder names by default, or override via settings
+    wandb_project = settings.pop("wandb_project", None)
+    wandb_name = settings.pop("wandb_name", None)
 
     default_matmul_precision = settings.pop("default_matmul_precision", "default")
     debug_nans = settings.pop("debug_nans", False)  # ~50% slowdown, use with care
