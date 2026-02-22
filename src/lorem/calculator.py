@@ -59,9 +59,7 @@ class Calculator(GetPropertiesMixin):
         if species_weights is None:
             species_weights = {}
             kwargs.setdefault("add_offset", False)
-        return cls(
-            model.predict, species_weights, params, model.cutoff, **kwargs
-        )
+        return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
 
     @classmethod
     def from_checkpoint(
@@ -86,9 +84,7 @@ class Calculator(GetPropertiesMixin):
 
         params = read_msgpack(folder / "model/model.msgpack")
 
-        return cls(
-            model.predict, species_to_weight, params, model.cutoff, **kwargs
-        )
+        return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
         changes = compare_atoms(self.atoms, atoms)
@@ -101,9 +97,7 @@ class Calculator(GetPropertiesMixin):
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        sample = to_sample(
-            atoms, self.cutoff, energy=False, forces=False, stress=False
-        )
+        sample = to_sample(atoms, self.cutoff, energy=False, forces=False, stress=False)
         batch = to_batch([sample], [])
         self.batch = jax.tree.map(lambda x: jnp.array(x), batch)
 
@@ -134,10 +128,7 @@ class Calculator(GetPropertiesMixin):
 
         if self.add_offset:
             energy_offset = np.sum(
-                [
-                    self.species_weights[Z]
-                    for Z in atoms.get_atomic_numbers()
-                ]
+                [self.species_weights[Z] for Z in atoms.get_atomic_numbers()]
             )
             actual_results["energy"] += energy_offset
 
@@ -146,9 +137,7 @@ class Calculator(GetPropertiesMixin):
 
     def get_property(self, name, atoms=None, allow_calculation=True):
         if name not in self.implemented_properties:
-            raise PropertyNotImplementedError(
-                f"{name} property not implemented"
-            )
+            raise PropertyNotImplementedError(f"{name} property not implemented")
 
         self.update(atoms)
 
@@ -160,9 +149,7 @@ class Calculator(GetPropertiesMixin):
         if name not in self.results:
             # For some reason the calculator was not able to do what we want,
             # and that is OK.
-            raise PropertyNotImplementedError(
-                f"{name} property not present in results!"
-            )
+            raise PropertyNotImplementedError(f"{name} property not present in results!")
 
         result = self.results[name]
         if isinstance(result, np.ndarray):

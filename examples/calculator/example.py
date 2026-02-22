@@ -1,10 +1,11 @@
 """Example: using the LOREM ASE calculator with randomly initialised weights."""
 
 import jax
+
 from ase.build import bulk, molecule
 
-from lorem.models.mlip import Lorem
 from lorem.calculator import Calculator
+from lorem.models.mlip import Lorem
 
 # Create a Lorem model with default hyperparameters
 model = Lorem(cutoff=5.0)
@@ -43,6 +44,6 @@ print(f"Forces:\n{calc_mol.results['forces']}")
 
 # -- using ASE interface --
 atoms.calc = Calculator.from_model(model, params=params)
-print(f"\n=== ASE interface ===")
+print("\n=== ASE interface ===")
 print(f"get_potential_energy: {atoms.get_potential_energy():.6f} eV")
 print(f"get_forces max: {abs(atoms.get_forces()).max():.6f} eV/A")
