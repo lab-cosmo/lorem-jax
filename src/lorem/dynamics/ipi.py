@@ -21,11 +21,3 @@ class LOREM_driver(ASEDriver):
     def check_parameters(self):
         super().check_parameters()
         self.ase_calculator = LOREMCalculator.from_checkpoint(self.model_path)
-
-    def compute_structure(self, cell, pos):
-        pot_ipi, force_ipi, vir_ipi, extras = super().compute_structure(cell, pos)
-
-        if "BEC" not in extras and "apt" in extras:
-            extras["BEC"] = extras["apt"]
-
-        return pot_ipi, force_ipi, vir_ipi, extras

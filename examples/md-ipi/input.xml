@@ -1,0 +1,55 @@
+<simulation verbosity='high'>
+
+  <total_steps>500</total_steps>
+
+  <ffsocket mode='unix' name='driver' pbc='False'>
+    <address>lorem</address>
+  </ffsocket>
+
+  <output prefix='i-pi'>
+    <trajectory filename='forces'>forces</trajectory>                <!--      total forces (a.u.): nuclear + q_e Z @ E(t) -->
+    <trajectory filename='Eforces'>Eforces</trajectory>              <!--     driven forces (a.u.): q_e Z @ E(t) -->
+    <trajectory filename='momenta'>momenta</trajectory>              <!--   nuclear momenta (a.u.) -->
+    <trajectory filename='velocities'>velocities</trajectory>        <!--   nuclear velocities (a.u.) -->
+    <trajectory filename='positions'>positions</trajectory>          <!-- nuclear positions (a.u.) -->
+    <trajectory filename='becx'>becx</trajectory>
+    <trajectory filename='becy'>becy</trajectory>
+    <trajectory filename='becz'>becz</trajectory>
+    <trajectory filename='dip' extra_type='dipole'> extras </trajectory>
+    <properties filename='properties.out' verbosity='low' > [ step, time, conserved, kinetic_md, potential, Efield, Eenvelope ] </properties>
+  </output>
+
+  <prng>
+    <seed>10545</seed>
+  </prng>
+
+  <system>
+    <forces>
+      <force forcefield='driver' />
+    </forces>
+
+    <initialize nbeads='1'>
+      <file mode='xyz' units='atomic_unit' > start.xyz </file>
+      <velocities mode='thermal' units='kelvin'> 0 </velocities>         <!-- no initial velocities: excited by E-field only -->
+      <cell mode="manual" units="atomic_unit">[ 50,0,0, 0,50,0, 0,0,50 ]</cell>
+    </initialize>
+
+    <ensemble>
+      <temperature units='kelvin'>0</temperature>
+    </ensemble>
+
+    <motion mode='driven_dynamics'>
+      <driven_dynamics mode='eda-nve'>                  <!-- Electric Dipole Approximation (EDA) on top of NVE -->
+        <timestep units='femtosecond'> 1 </timestep>
+        <efield>
+          <amp> [ 0 , 5e-2 , 0 ] </amp>                <!-- amplitude of the electric field pulse in a.u. -->
+          <freq units="thz"> 115 </freq>                <!-- frequency of the electric field pulse in THz -->
+          <peak units="picosecond"> 0.2 </peak>         <!-- peak of the electric field pulse -->
+          <sigma units="picosecond"> 0.05 </sigma>      <!-- width (std of gaussian envelope) -->
+        </efield>
+        <bec mode="driver"/>                            <!-- BECs computed by LOREM, not read from file -->
+      </driven_dynamics>
+    </motion>
+
+  </system>
+</simulation>

@@ -1,4 +1,7 @@
-class LOREMCalculator:
-    @classmethod
-    def from_checkpoint(cls, model_path):
-        pass
+from lorem.calculator import Calculator
+
+
+class LOREMCalculator(Calculator):
+    """LOREM ASE calculator with BEC support for i-PI integration."""
+
+    pass

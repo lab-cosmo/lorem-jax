@@ -126,6 +126,15 @@ class Calculator(GetPropertiesMixin):
             elif key == "stress":
                 raise KeyError
 
+        # BEC passthrough: when model outputs "apt" (e.g. LoremBEC),
+        # expose as "BEC" in (3*natoms, 3) layout for i-PI compatibility
+        if "apt" in results:
+            apt = np.array(
+                results["apt"][self.batch.sr.atom_mask].reshape(-1, 3, 3),
+                dtype=np.float32,
+            )
+            actual_results["BEC"] = apt.reshape(-1, 3)
+
         if self.add_offset:
             energy_offset = np.sum(
                 [self.species_weights[Z] for Z in atoms.get_atomic_numbers()]
@@ -136,7 +145,7 @@ class Calculator(GetPropertiesMixin):
         return actual_results
 
     def get_property(self, name, atoms=None, allow_calculation=True):
-        if name not in self.implemented_properties:
+        if name not in self.implemented_properties and name != "BEC":
             raise PropertyNotImplementedError(f"{name} property not implemented")
 
         self.update(atoms)
