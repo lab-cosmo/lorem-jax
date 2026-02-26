@@ -7,8 +7,6 @@ try:
 except ModuleNotFoundError:
     comms = None
 
-from .dynamics import LOREMCalculator
-
 # These modules require marathon and jaxpme at import time.
 # When those are not installed (e.g. CI), we skip them.
 try:
@@ -21,7 +19,6 @@ except ModuleNotFoundError:
 
 __all__ = [
     "__version__",
-    "LOREMCalculator",
     "Lorem",
     "LoremBEC",
     "to_sample",

@@ -4,20 +4,18 @@ from __future__ import annotations
 
 from ipi.pes.ase import ASEDriver
 
-from lorem import LOREMCalculator
+from lorem.calculator import Calculator
 
 __DRIVER_NAME__ = "lorem"
 __DRIVER_CLASS__ = "LOREM_driver"
 
 
 class LOREM_driver(ASEDriver):
-    def __init__(self, template, model_path, device="cpu", *args, **kwargs):
-        super().__init__(template, *args, **kwargs)
-
+    def __init__(self, template, model_path, *args, **kwargs):
         self.model_path = model_path
-        self.device = device
+        super().__init__(template, *args, **kwargs)
         self.capabilities.append("BEC")
 
     def check_parameters(self):
         super().check_parameters()
-        self.ase_calculator = LOREMCalculator.from_checkpoint(self.model_path)
+        self.ase_calculator = Calculator.from_checkpoint(self.model_path)
