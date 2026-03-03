@@ -58,7 +58,6 @@ def to_batch(
             num_pairs_nonpbc=strategies.get("coarse", default),
             num_pairs=strategies.get("coarse", default),
             num_structures=batch_size,
-            halfspace=True,
         )
     else:
         kwargs = {
@@ -70,7 +69,6 @@ def to_batch(
             "num_pairs_nonpbc": shapes["pairs_nonpbc"],
             "num_k": shapes["k"],
             "strategy": "multiples",
-            "halfspace": True,
         }
         _, sr, nopbc, pbc = jaxpme_batcher(
             structures,
