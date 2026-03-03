@@ -19,6 +19,7 @@ class Calculator(BaseCalculator):
         return self.parameters
 
     implemented_properties = [
+        "born_effective_charges",
         "energy",
         "forces",
         "stress",
@@ -129,14 +130,13 @@ class Calculator(BaseCalculator):
             elif key == "stress":
                 raise KeyError
 
-        # BEC passthrough: when model outputs "apt" (e.g. LoremBEC),
-        # expose as "BEC" in (3*natoms, 3) layout for i-PI compatibility
+        # BEC passthrough: when model outputs "apt" (e.g. LoremBEC), expose as
+        # "born_effective_charges" in (natoms, 3, 3) layout for ase compatibility
         if "apt" in results:
-            apt = np.array(
+            actual_results["born_effective_charges"] = np.array(
                 results["apt"][self.batch.sr.atom_mask].reshape(-1, 3, 3),
                 dtype=np.float32,
             )
-            actual_results["BEC"] = apt.reshape(-1, 3)
 
         if self.add_offset:
             energy_offset = np.sum(
@@ -148,7 +148,7 @@ class Calculator(BaseCalculator):
         return actual_results
 
     def get_property(self, name, atoms=None, allow_calculation=True):
-        if name not in self.implemented_properties and name != "BEC":
+        if name not in self.implemented_properties:
             raise PropertyNotImplementedError(f"{name} property not implemented")
 
         self.update(atoms)
