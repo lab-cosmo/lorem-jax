@@ -11,6 +11,7 @@ except ModuleNotFoundError:
 # When those are not installed (e.g. CI), we skip them.
 try:
     from .batching import to_batch, to_sample
+    from .calculator import Calculator as LOREMCalculator
     from .models.bec import LoremBEC
     from .models.mlip import Lorem
     from .transforms import ToBatch, ToSample
@@ -21,6 +22,7 @@ __all__ = [
     "__version__",
     "Lorem",
     "LoremBEC",
+    "LOREMCalculator",
     "to_sample",
     "to_batch",
     "ToSample",

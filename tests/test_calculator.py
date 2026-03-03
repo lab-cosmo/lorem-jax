@@ -29,11 +29,11 @@ def test_calculator_bec():
 
     assert "energy" in calc.results
     assert "forces" in calc.results
-    assert "BEC" in calc.results
+    assert "born_effective_charges" in calc.results
 
     natoms = len(atoms)
-    assert calc.results["BEC"].shape == (3 * natoms, 3)
-    assert calc.results["BEC"].dtype == np.float32
+    assert calc.results["born_effective_charges"].shape == (natoms, 3, 3)
+    assert calc.results["born_effective_charges"].dtype == np.float32
 
 
 def test_calculator_bec_get_property():
@@ -43,8 +43,8 @@ def test_calculator_bec_get_property():
     atoms = bulk("Ar") * [2, 2, 2]
     calc.calculate(atoms)
 
-    bec = calc.get_property("BEC", atoms)
-    assert bec.shape == (3 * len(atoms), 3)
+    bec = calc.get_property("born_effective_charges", atoms)
+    assert bec.shape == (len(atoms), 3, 3)
 
 
 def test_lorem_calculator_import():
@@ -56,5 +56,5 @@ def test_lorem_calculator_import():
     atoms = bulk("Ar") * [2, 2, 2]
     calc.calculate(atoms)
 
-    assert "BEC" in calc.results
-    assert calc.results["BEC"].shape == (3 * len(atoms), 3)
+    assert "born_effective_charges" in calc.results
+    assert calc.results["born_effective_charges"].shape == (len(atoms), 3, 3)
