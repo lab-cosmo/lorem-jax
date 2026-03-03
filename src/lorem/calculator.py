@@ -42,7 +42,7 @@ class Calculator(BaseCalculator):
         self.double_precision = double_precision
 
         if not stress:
-            self.implemented_properties = ["energy", "forces"]
+            self.implemented_properties = ["born_effective_charges", "energy", "forces"]
 
         predict_fn = lambda params, batch: pred_fn(params, batch, stress=stress)
 

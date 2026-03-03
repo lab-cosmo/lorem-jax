@@ -1,7 +1,9 @@
 """LOREM driver for i-PI."""
 
 from __future__ import annotations
+import json
 
+import numpy as np
 from ipi.pes.ase import ASEDriver
 
 from lorem.calculator import Calculator
@@ -18,14 +20,18 @@ class LOREM_driver(ASEDriver):
 
     def check_parameters(self):
         super().check_parameters()
-        self.ase_calculator = Calculator.from_checkpoint(self.model_path)
+        has_stress = "stress" in self.capabilities
+        self.ase_calculator = Calculator.from_checkpoint(self.model_path, stress=has_stress)
 
     def compute_structure(self, cell, pos):
         pot_ipi, force_ipi, vir_ipi, extras = super().compute_structure(cell, pos)
 
         # BEC passthrough: when model outputs "born_effective_charges" (e.g. LoremBEC),
         # expose as "BEC" in (3*natoms, 3) layout for i-PI compatibility
-        if "born_effective_charges" in extras:
-            extras["BEC"] = extras.pop("born_effective_charges").reshape(-1, 3)
+        if extras and "born_effective_charges" in extras:
+            extras = json.loads(extras)
+            BEC = np.reshape(extras.pop("born_effective_charges"), (-1, 3))
+            extras["BEC"] = BEC.tolist()
+            extras = json.dumps(extras)
 
         return pot_ipi, force_ipi, vir_ipi, extras
