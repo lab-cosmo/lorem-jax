@@ -128,7 +128,14 @@ class Calculator(BaseCalculator):
                     dtype=np.float32,
                 )
             elif key == "stress":
-                raise KeyError
+                virial = np.array(
+                    results[key][self.batch.sr.structure_mask].reshape(3, 3),
+                    dtype=np.float32,
+                )
+                volume = atoms.get_volume()
+                from ase.stress import full_3x3_to_voigt_6_stress
+
+                actual_results[key] = full_3x3_to_voigt_6_stress(virial / volume)
 
         # BEC passthrough: when model outputs "apt" (e.g. LoremBEC), expose as
         # "born_effective_charges" in (natoms, 3, 3) layout for ase compatibility
