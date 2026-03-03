@@ -4,11 +4,14 @@ import jax.numpy as jnp
 
 jax.config.update("jax_default_matmul_precision", "float32")
 
-from ase.calculators.abc import GetPropertiesMixin
-from ase.calculators.calculator import PropertyNotImplementedError, compare_atoms
+from ase.calculators.calculator import (
+    BaseCalculator,
+    PropertyNotImplementedError,
+    compare_atoms,
+)
 
 
-class Calculator(GetPropertiesMixin):
+class Calculator(BaseCalculator):
     name = "lorem"
     parameters = {}
 
