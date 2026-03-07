@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from jaxpme.batched_mixed.kspace import count_halfspace_kvectors
 from marathon.data.properties import DEFAULT_PROPERTIES
-from marathon.extra.hermes.pain import (
+from marathon.grain import (
     MapTransform,
     Record,
 )

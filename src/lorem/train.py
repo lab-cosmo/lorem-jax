@@ -188,7 +188,7 @@ def main():
 
     # -- data loading --
     from marathon.evaluate.metrics import get_stats
-    from marathon.extra.hermes import (
+    from marathon.grain import (
         DataLoader,
         DataSource,
         FilterAboveNumAtoms,
@@ -197,9 +197,10 @@ def main():
         FilterNoop,
         IndexSampler,
         RandomRotation,
+        Record,
+        RecordMetadata,
         prefetch_to_device,
     )
-    from marathon.extra.hermes.pain import Record, RecordMetadata
     from marathon.utils import tree_stack
 
     def get_batcher(valid=False):

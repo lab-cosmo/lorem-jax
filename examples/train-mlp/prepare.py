@@ -3,7 +3,7 @@ import jax
 from ase.io import read
 from marathon import comms
 from marathon.data import datasets, get_splits
-from marathon.extra.hermes.data_source import prepare
+from marathon.grain import prepare
 
 data = read("./data.xyz", format="extxyz", index=":")
 
