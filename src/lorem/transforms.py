@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-from jaxpme.batched_mixed.kspace import count_halfspace_kvectors
 from marathon.data.properties import DEFAULT_PROPERTIES
 from marathon.grain import (
     MapTransform,
@@ -61,7 +60,7 @@ class ToBatch:
         def k_size(rec):
             lr = rec.data.structure.get("lr", None)
             kg = getattr(lr, "k_grid", None)
-            return 0 if kg is None else count_halfspace_kvectors(kg.shape)
+            return 0 if kg is None else kg.shape[0]
 
         def nobpc_size(rec):
             lr = rec.data.structure.get("lr", None)

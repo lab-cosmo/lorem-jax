@@ -11,8 +11,8 @@ dependencies = [
     "jax",
     "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
     "jaxtyping",
+    "marathon @ git+https://github.com/sirmarcel/marathon.git@release/v0.2.0",
     "optax",
-    # comms and marathon are local deps, install separately
 ]
 dynamic = ["version"]
 license = "BSD-3-Clause"
