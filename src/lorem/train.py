@@ -73,7 +73,7 @@ def main():
     wandb_project = settings.pop("wandb_project", None)
     wandb_name = settings.pop("wandb_name", None)
 
-    default_matmul_precision = settings.pop("default_matmul_precision", "default")
+    default_matmul_precision = settings.pop("default_matmul_precision", "float32")
     debug_nans = settings.pop("debug_nans", False)  # ~50% slowdown, use with care
     enable_x64 = settings.pop("enable_x64", False)
 
