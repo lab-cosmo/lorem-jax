@@ -1,9 +1,9 @@
 """LOREM driver for i-PI."""
 
-from __future__ import annotations
+import numpy as np
+
 import json
 
-import numpy as np
 from ipi.pes.ase import ASEDriver
 
 from lorem.calculator import Calculator

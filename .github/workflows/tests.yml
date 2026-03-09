@@ -32,3 +32,18 @@ jobs:
     - run: python -m pip install tox coverage[toml]
     - name: run Python tests
       run: tox -e tests
+
+  examples:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.13"
+    - run: python -m pip install tox
+    - name: run examples
+      run: tox -e examples

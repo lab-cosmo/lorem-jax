@@ -19,9 +19,24 @@ Unlike the standard i-PI efield example which reads fixed Born Effective Charges
 ## Running
 
 ```bash
-# Edit run.sh to set MODEL_PATH, then:
-bash run.sh
+MODEL_PATH="/path/to/checkpoint"
+
+# Install LOREM driver into i-PI (idempotent)
+lorem-install-ipi-driver
+
+# Start i-PI server
+i-pi input.xml > i-pi.out &
+sleep 5
+
+# Start LOREM driver
+i-pi-driver -a lorem -u -m lorem \
+    -o model_path=${MODEL_PATH},template=start.xyz \
+    > driver.out &
+
+wait
 ```
+
+See `run.sh` for a self-contained reference script.
 
 i-PI outputs will be written to `i-pi.*` files. Key outputs:
 - `i-pi.properties.out` — energy, kinetic energy, E-field strength over time

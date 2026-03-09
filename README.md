@@ -12,12 +12,6 @@ Requires Python >= 3.11.
 pip install .
 ```
 
-Note: At the moment you need `marathon-dev` from `https://github.com/sirmarcel/marathon-dev` on the `hermes-reorg` branch. This will be fixed soon.
-
-```bash
-pip install git+https://github.com/sirmarcel/marathon-dev.git@hermes-reorg
-```
-
 ## Usage
 
 ### ASE calculator
@@ -94,6 +88,15 @@ Run tests:
 
 ```bash
 python -m pytest tests/ -v --override-ini="addopts="
+```
+
+Or use tox:
+
+```bash
+tox -e lint       # check formatting + linting
+tox -e tests      # run unit tests
+tox -e examples   # run examples as smoke tests
+tox -e format     # auto-format
 ```
 
 ## License
