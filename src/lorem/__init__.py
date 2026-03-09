@@ -1,22 +1,13 @@
+from comms import Comms
+
 from ._version import __version__
+from .batching import to_batch, to_sample
+from .calculator import Calculator as LOREMCalculator
+from .models.bec import LoremBEC
+from .models.mlip import Lorem
+from .transforms import ToBatch, ToSample
 
-try:
-    from comms import Comms
-
-    comms = Comms("lorem")
-except ModuleNotFoundError:
-    comms = None
-
-# These modules require marathon and jaxpme at import time.
-# When those are not installed (e.g. CI), we skip them.
-try:
-    from .batching import to_batch, to_sample
-    from .calculator import Calculator as LOREMCalculator
-    from .models.bec import LoremBEC
-    from .models.mlip import Lorem
-    from .transforms import ToBatch, ToSample
-except ModuleNotFoundError:
-    pass
+comms = Comms("lorem")
 
 __all__ = [
     "__version__",

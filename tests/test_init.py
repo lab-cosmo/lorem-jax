@@ -1,8 +1,3 @@
-import pytest
-
-comms = pytest.importorskip("comms")
-
-
 def test_version():
     import lorem
 

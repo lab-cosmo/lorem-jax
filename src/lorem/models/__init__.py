@@ -1,7 +1,4 @@
-try:
-    from .bec import LoremBEC
-    from .mlip import Lorem
-except ModuleNotFoundError:
-    pass
+from .bec import LoremBEC
+from .mlip import Lorem
 
 __all__ = ["Lorem", "LoremBEC"]
