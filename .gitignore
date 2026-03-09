@@ -12,3 +12,4 @@ _version.py
 .tox/
 build/
 dist/
+uv.lock

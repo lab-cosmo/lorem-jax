@@ -1,0 +1,20 @@
+train: "bec_example/train"
+valid: "bec_example/valid"
+seed: 23
+batcher:
+  batch_size: 4
+  coarse_strategy: powers_of_4
+  size_strategy: powers_of_4
+  fine_strategy: powers_of_4
+loss_weights: {"energy": 0.5, "forces": 0.5, "apt": 0.5}
+checkpointers: full
+optimizer: muon
+valid_every_epoch: 1
+decay_style: warmup_cosine
+warmup_epochs: 0
+start_learning_rate: 2e-4
+max_epochs: 2
+benchmark_pipeline: True
+use_wandb: False
+default_matmul_precision: "float32"
+worker_count: 2

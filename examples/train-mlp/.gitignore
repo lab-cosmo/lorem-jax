@@ -1,0 +1,5 @@
+mlp_example/
+my_experiment/run/
+my_experiment/__pycache__/
+__pycache__/
+*.npz
