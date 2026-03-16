@@ -1,4 +1,4 @@
-from comms import Comms
+from opsis.comms import Comms
 
 from ._version import __version__
 from .batching import to_batch, to_sample
