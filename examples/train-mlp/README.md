@@ -19,3 +19,16 @@ DATASETS=. python prepare.py
 cd my_experiment
 DATASETS=.. lorem-train
 ```
+
+## Fine-tuning from pretrained weights
+
+The `my_experiment_finetune/` directory demonstrates restarting training from
+pretrained model weights. Add `initial_weights` to `settings.yaml`:
+
+```yaml
+initial_weights: "path/to/previous_run/checkpoints/R2_E+F/model/model.msgpack"
+```
+
+Only model weights are loaded — optimizer state, step counter, and data iterator
+start fresh. If the current model has layers not present in the source checkpoint,
+those layers keep their random initialization.

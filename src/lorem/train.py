@@ -35,6 +35,8 @@ def main():
     should_filter_mixedpbc = settings.pop("filter_mixed_pbc", False)
     should_filter_above_num_atoms = settings.pop("filter_above_num_atoms", False)
 
+    initial_weights = settings.pop("initial_weights", None)
+
     loss_weights = settings.pop("loss_weights", {"energy": 0.5, "forces": 0.5})
     scale_by_variance = settings.pop("scale_by_variance", False)
 
@@ -165,6 +167,26 @@ def main():
 
     num_parameters = int(sum(x.size for x in jax.tree_util.tree_leaves(params)))
     comms.state(f"Parameter count: {num_parameters}")
+
+    # -- initial weights (pre-trained) --
+    if initial_weights:
+
+        def merge_params(target, source):
+            if isinstance(target, dict) and isinstance(source, dict):
+                result = {}
+                for k in target:
+                    if k in source:
+                        result[k] = merge_params(target[k], source[k])
+                    else:
+                        result[k] = target[k]
+                return result
+            return source
+
+        from marathon.io import read_msgpack
+
+        source_params = read_msgpack(Path(initial_weights))
+        params = merge_params(params, source_params)
+        comms.talk(f"loaded initial weights from {initial_weights}")
 
     # -- checkpointers --
     from marathon.emit import SummedMetric
@@ -609,6 +631,7 @@ def main():
         "num_parameters": num_parameters,
         "worker_count": worker_count,
         "worker_buffer_size": worker_buffer_size,
+        "initial_weights": initial_weights,
     }
 
     metrics = {key: ["r2", "mae", "rmse"] for key in keys}
