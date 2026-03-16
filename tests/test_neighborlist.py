@@ -65,9 +65,9 @@ def test_needs_update_boundary_displacement(cache, ar_bulk):
     assert cache.needs_update(displaced) is False
 
 
-def test_needs_update_cell_change(cache, ar_bulk):
-    """Cell change always triggers update."""
-    cache.save_reference(ar_bulk)
+def test_needs_update_cell_change_no_shift_info(cache, ar_bulk):
+    """Without max_cell_shift info, any cell change triggers update."""
+    cache.save_reference(ar_bulk)  # no max_cell_shift → exact comparison
 
     modified = ar_bulk.copy()
     cell = modified.get_cell()
@@ -139,3 +139,140 @@ def test_default_skin():
     """Default skin is 0.25 Å."""
     cache = NeighborListCache()
     assert cache.skin == 0.25
+
+
+# -- Cell-change tests (combined position + cell criterion) --
+
+
+def test_needs_update_small_cell_change_with_shift(ar_bulk):
+    """Small cell change with max_cell_shift=1 stays within skin.
+
+     cell₀ (reference)              cell = cell₀ * 1.001
+    ┌──────────┐                   ┌───────────┐
+    │  · · · · │   0.1% scaling    │  · · · ·  │
+    │  · · · · │   ───────────>    │  · · · ·  │
+    │  · · · · │   Δcell ≈ 0.005   │  · · · ·  │
+    └──────────┘                   └───────────┘
+    max_shift * Σ|Δcell_A| ≈ 0.016 Å  << skin = 0.5 Å
+    """
+    cache = NeighborListCache(skin=0.5)
+    cache.save_reference(ar_bulk, max_cell_shift=1)
+
+    scaled = ar_bulk.copy()
+    scaled.set_cell(ar_bulk.get_cell() * 1.001, scale_atoms=True)
+
+    assert cache.needs_update(scaled) is False
+
+
+def test_needs_update_large_cell_change_with_shift(ar_bulk):
+    """Large cell change with max_cell_shift=1 exceeds skin.
+
+    10% cell scaling: Δcell_A ≈ 0.5 Å per vector
+    max_shift * Σ|Δcell_A| ≈ 1 * 1.5 = 1.5 Å  >> skin = 0.5 Å
+    """
+    cache = NeighborListCache(skin=0.5)
+    cache.save_reference(ar_bulk, max_cell_shift=1)
+
+    scaled = ar_bulk.copy()
+    scaled.set_cell(ar_bulk.get_cell() * 1.1, scale_atoms=True)
+
+    assert cache.needs_update(scaled) is True
+
+
+def test_needs_update_cell_change_zero_shift(ar_bulk):
+    """With max_cell_shift=0, cell changes have no effect on criterion.
+
+    Non-periodic systems have all cell_shifts = [0,0,0], so cell
+    deformation doesn't change any pairwise distance.
+    """
+    cache = NeighborListCache(skin=0.5)
+    cache.save_reference(ar_bulk, max_cell_shift=0)
+
+    modified = ar_bulk.copy()
+    cell = modified.get_cell()
+    cell[0, 0] += 1.0  # large change, but shift=0 → no contribution
+    modified.set_cell(cell)
+
+    assert cache.needs_update(modified) is False
+
+
+def test_needs_update_combined_position_and_cell(ar_bulk):
+    """Position + cell change, each small, combined within skin.
+
+    d_max = 0.05 Å  →  2*d_max = 0.1 Å
+    Δcell ≈ 0.005 Å  →  max_shift * Σ|Δcell| ≈ 0.016 Å
+    total ≈ 0.116 Å  <  skin = 0.5 Å  →  no rebuild
+    """
+    cache = NeighborListCache(skin=0.5)
+    cache.save_reference(ar_bulk, max_cell_shift=1)
+
+    modified = ar_bulk.copy()
+    modified.set_cell(ar_bulk.get_cell() * 1.001, scale_atoms=True)
+    pos = modified.get_positions()
+    pos[0, 0] += 0.05
+    modified.set_positions(pos)
+
+    assert cache.needs_update(modified) is False
+
+
+def test_needs_update_combined_exceeds_skin(ar_bulk):
+    """Position + cell change that individually are small but combined exceed skin.
+
+    skin = 0.2 Å
+    d_max = 0.06 Å  →  2*d_max = 0.12 Å
+    Δcell ≈ 0.15 Å  →  max_shift * Σ|Δcell| ≈ 0.09 Å
+    total ≈ 0.21 Å  >  skin = 0.2 Å  →  rebuild!
+    """
+    cache = NeighborListCache(skin=0.2)
+    cache.save_reference(ar_bulk, max_cell_shift=1)
+
+    modified = ar_bulk.copy()
+    # Cell change: scale by 1.01 → Δcell ≈ 0.05 per vector, 3 vectors
+    modified.set_cell(ar_bulk.get_cell() * 1.01, scale_atoms=True)
+    pos = modified.get_positions()
+    pos[0, 0] += 0.06
+    modified.set_positions(pos)
+
+    assert cache.needs_update(modified) is True
+
+
+def test_needs_update_higher_cell_shift(ar_bulk):
+    """Higher max_cell_shift amplifies cell deformation contribution.
+
+    For Ar FCC 2×2×2 (cell vectors ≈ 7.4 Å each), a 1% scaling gives:
+    - Position d_max ≈ 0.09 Å (atom farthest from origin)
+    - |Δcell_A| ≈ 0.074 Å per vector, Σ ≈ 0.22 Å
+
+    Combined criterion: 2*d_max + max_shift * Σ|Δcell_A|
+    - shift=1: 0.18 + 0.22 = 0.40  < 0.5 → ok
+    - shift=3: 0.18 + 0.67 = 0.85  > 0.5 → rebuild
+    """
+    scaled = ar_bulk.copy()
+    scaled.set_cell(ar_bulk.get_cell() * 1.01, scale_atoms=True)
+
+    # With shift=1: within skin
+    cache1 = NeighborListCache(skin=0.5)
+    cache1.save_reference(ar_bulk, max_cell_shift=1)
+    assert cache1.needs_update(scaled) is False
+
+    # With shift=3: same deformation, amplified → exceeds skin
+    cache3 = NeighborListCache(skin=0.5)
+    cache3.save_reference(ar_bulk, max_cell_shift=3)
+    assert cache3.needs_update(scaled) is True
+
+
+def test_reset_clears_max_cell_shift(ar_bulk):
+    """Reset clears max_cell_shift, reverting to exact cell comparison."""
+    cache = NeighborListCache(skin=0.5)
+    cache.save_reference(ar_bulk, max_cell_shift=1)
+
+    scaled = ar_bulk.copy()
+    scaled.set_cell(ar_bulk.get_cell() * 1.001, scale_atoms=True)
+
+    # With shift info: small change tolerated
+    assert cache.needs_update(scaled) is False
+
+    # After reset + re-save without shift info: exact comparison
+    cache.reset()
+    cache.save_reference(ar_bulk)
+    assert cache.needs_update(scaled) is True

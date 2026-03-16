@@ -166,6 +166,127 @@ def test_calculator_skin_full_rebuild_on_large_displacement():
     assert "energy" in calc.results
 
 
+def test_calculator_cell_change_within_skin():
+    """Small cell change (NPT-like) reuses cached neighbor list.
+
+       cell₀                     cell₀ * 1.001
+    ┌──────────┐              ┌───────────┐
+    │ · · · ·  │  0.1% scale  │ ·  ·  · · │
+    │ · · · ·  │  ─────────>  │ ·  ·  · · │  same neighbor
+    │ · · · ·  │              │ ·  ·  · · │  list topology
+    └──────────┘              └───────────┘
+    """
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    atoms = bulk("Ar") * [2, 2, 2]
+
+    calc = Calculator.from_model(model, skin=0.5)
+    calc.calculate(atoms)
+
+    # Small isotropic cell scaling (~0.1%)
+    scaled = atoms.copy()
+    scaled.set_cell(atoms.get_cell() * 1.001, scale_atoms=True)
+
+    # Should NOT trigger full rebuild
+    assert calc._nl_cache.needs_update(scaled) is False
+
+    calc.calculate(scaled)
+
+    # Compare with fresh calculation on scaled structure
+    calc_fresh = Calculator.from_model(model, skin=0.5)
+    calc_fresh.calculate(scaled)
+
+    np.testing.assert_allclose(
+        calc.results["energy"],
+        calc_fresh.results["energy"],
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        calc.results["forces"],
+        calc_fresh.results["forces"],
+        atol=1e-5,
+    )
+
+
+def test_calculator_cell_change_stress_correct():
+    """Stress is correct after geometry-only update (no full rebuild).
+
+    Stress = ∂E/∂ε depends on sr.cell through:
+      σ = Σ_i R_i ⊗ ∂E/∂R_i + Σ_A cell_A ⊗ ∂E/∂cell_A
+
+    Both terms use current sr.positions and sr.cell, so stress
+    is correct as long as those are updated.
+    """
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    atoms = bulk("Ar") * [2, 2, 2]
+
+    calc = Calculator.from_model(model, skin=0.5, stress=True)
+    calc.calculate(atoms)
+
+    scaled = atoms.copy()
+    scaled.set_cell(atoms.get_cell() * 1.002, scale_atoms=True)
+
+    assert calc._nl_cache.needs_update(scaled) is False
+    calc.calculate(scaled)
+
+    calc_fresh = Calculator.from_model(model, skin=0.5, stress=True)
+    calc_fresh.calculate(scaled)
+
+    np.testing.assert_allclose(
+        calc.results["stress"],
+        calc_fresh.results["stress"],
+        atol=1e-5,
+    )
+
+
+def test_calculator_large_cell_change_triggers_rebuild():
+    """Large cell change exceeds combined Verlet criterion."""
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    atoms = bulk("Ar") * [2, 2, 2]
+
+    calc = Calculator.from_model(model, skin=0.5)
+    calc.calculate(atoms)
+
+    scaled = atoms.copy()
+    scaled.set_cell(atoms.get_cell() * 1.1, scale_atoms=True)
+
+    assert calc._nl_cache.needs_update(scaled) is True
+    calc.calculate(scaled)
+    assert "energy" in calc.results
+
+
+def test_calculator_combined_position_and_cell_change():
+    """Both position and cell change within skin — correct results."""
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    atoms = bulk("Ar") * [2, 2, 2]
+
+    calc = Calculator.from_model(model, skin=0.5)
+    calc.calculate(atoms)
+
+    modified = atoms.copy()
+    modified.set_cell(atoms.get_cell() * 1.001, scale_atoms=True)
+    pos = modified.get_positions()
+    pos[0, 0] += 0.05
+    modified.set_positions(pos)
+
+    assert calc._nl_cache.needs_update(modified) is False
+
+    calc.calculate(modified)
+
+    calc_fresh = Calculator.from_model(model, skin=0.5)
+    calc_fresh.calculate(modified)
+
+    np.testing.assert_allclose(
+        calc.results["energy"],
+        calc_fresh.results["energy"],
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        calc.results["forces"],
+        calc_fresh.results["forces"],
+        atol=1e-5,
+    )
+
+
 def test_lorem_calculator_import():
     from lorem import LOREMCalculator
 

@@ -97,17 +97,20 @@ class Calculator(BaseCalculator):
 
     def update(self, atoms):
         if self._nl_cache.needs_update(atoms):
-            # Structural change or displacement beyond skin — full rebuild
+            # Structural change or combined displacement beyond skin
             self.results = {}
             self.atoms = atoms.copy()
             self.setup(atoms)
-        elif self.atoms is None or not np.array_equal(
-            atoms.get_positions(), self.atoms.get_positions()
-        ):
-            # Positions changed but within skin — update positions only
+        elif self.atoms is None or not self._geometry_unchanged(atoms):
+            # Positions and/or cell changed but within skin budget
             self.results = {}
             self.atoms = atoms.copy()
-            self._update_positions(atoms)
+            self._update_geometry(atoms)
+
+    def _geometry_unchanged(self, atoms):
+        return np.array_equal(
+            atoms.get_positions(), self.atoms.get_positions()
+        ) and np.array_equal(atoms.get_cell()[:], self.atoms.get_cell()[:])
 
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
@@ -130,15 +133,34 @@ class Calculator(BaseCalculator):
         )
         batch = to_batch([sample], [])
         self.batch = jax.tree.map(lambda x: jnp.array(x), batch)
-        self._nl_cache.save_reference(atoms)
 
-    def _update_positions(self, atoms):
-        """Update positions in cached batch without rebuilding neighbor list."""
+        max_cell_shift = int(np.abs(np.array(self.batch.sr.cell_shifts)).max())
+        self._nl_cache.save_reference(atoms, max_cell_shift=max_cell_shift)
+
+    def _update_geometry(self, atoms):
+        """Update positions and cell in cached batch without rebuilding
+        the neighbor list. The model recomputes R_ij from the updated
+        sr.positions and sr.cell, and the Ewald calculator recomputes
+        k-vectors from sr.cell (pbc.k_grid stores only integer frequency
+        indices). So forces, energy, and stress remain correct."""
         sr = self.batch.sr
         n_atoms = len(atoms)
+
         positions = np.zeros(np.array(sr.positions).shape, dtype=np.float32)
         positions[:n_atoms] = atoms.get_positions()
-        new_sr = sr._replace(positions=jnp.array(positions))
+
+        cell = np.array(sr.cell)
+        new_cell = atoms.get_cell()[:].astype(np.float32)
+        if atoms.get_pbc().sum() == 2:
+            from jaxpme.batched_mixed.batching import shrink_2d_cell
+
+            new_cell = shrink_2d_cell(new_cell, atoms.get_pbc(), positions[:n_atoms])
+        cell[0] = new_cell
+
+        new_sr = sr._replace(
+            positions=jnp.array(positions),
+            cell=jnp.array(cell),
+        )
         self.batch = self.batch._replace(sr=new_sr)
 
     def calculate(
