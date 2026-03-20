@@ -1,0 +1,8 @@
+model:
+  lorem.Lorem:
+    cutoff: 5.0
+    max_degree_lr: 2
+    num_features: 128
+    max_degree: 4
+    num_message_passing: 1
+    num_spherical_features: 4
