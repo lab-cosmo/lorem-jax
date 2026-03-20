@@ -7,8 +7,9 @@ jax.config.update("jax_default_matmul_precision", "float32")
 from ase.calculators.calculator import (
     BaseCalculator,
     PropertyNotImplementedError,
-    compare_atoms,
 )
+
+from lorem.neighborlist import NeighborListCache
 
 
 class Calculator(BaseCalculator):
@@ -35,11 +36,15 @@ class Calculator(BaseCalculator):
         stress=False,
         add_offset=True,
         double_precision=False,
+        skin=0.25,
     ):
         self.params = params
         self.cutoff = cutoff
+        self.skin = skin
         self.add_offset = add_offset
         self.double_precision = double_precision
+
+        self._nl_cache = NeighborListCache(skin=skin)
 
         if not stress:
             self.implemented_properties = ["born_effective_charges", "energy", "forces"]
@@ -91,19 +96,72 @@ class Calculator(BaseCalculator):
         return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
-        changes = compare_atoms(self.atoms, atoms)
-
-        if len(changes) > 0:
+        if self._nl_cache.needs_update(atoms):
+            # Structural change or combined displacement beyond skin
             self.results = {}
             self.atoms = atoms.copy()
             self.setup(atoms)
+        elif self.atoms is None or not self._geometry_unchanged(atoms):
+            # Positions and/or cell changed but within skin budget
+            self.results = {}
+            self.atoms = atoms.copy()
+            self._update_geometry(atoms)
+
+    def _geometry_unchanged(self, atoms):
+        return np.array_equal(
+            atoms.get_positions(), self.atoms.get_positions()
+        ) and np.array_equal(atoms.get_cell()[:], self.atoms.get_cell()[:])
 
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        sample = to_sample(atoms, self.cutoff, energy=False, forces=False, stress=False)
+        nl_cutoff = self.cutoff + self.skin
+
+        # Derive Ewald parameters from physical cutoff so the long-range
+        # decomposition is unchanged when using the extended cutoff.
+        lr_wavelength = self.cutoff / 8.0
+        smearing = lr_wavelength * 2.0
+
+        sample = to_sample(
+            atoms,
+            nl_cutoff,
+            lr_wavelength=lr_wavelength,
+            smearing=smearing,
+            energy=False,
+            forces=False,
+            stress=False,
+        )
         batch = to_batch([sample], [])
         self.batch = jax.tree.map(lambda x: jnp.array(x), batch)
+
+        max_cell_shift = int(np.abs(np.array(self.batch.sr.cell_shifts)).max())
+        self._nl_cache.save_reference(atoms, max_cell_shift=max_cell_shift)
+
+    def _update_geometry(self, atoms):
+        """Update positions and cell in cached batch without rebuilding
+        the neighbor list. The model recomputes R_ij from the updated
+        sr.positions and sr.cell, and the Ewald calculator recomputes
+        k-vectors from sr.cell (pbc.k_grid stores only integer frequency
+        indices). So forces, energy, and stress remain correct."""
+        sr = self.batch.sr
+        n_atoms = len(atoms)
+
+        positions = np.zeros(np.array(sr.positions).shape, dtype=np.float32)
+        positions[:n_atoms] = atoms.get_positions()
+
+        cell = np.array(sr.cell)
+        new_cell = atoms.get_cell()[:].astype(np.float32)
+        if atoms.get_pbc().sum() == 2:
+            from jaxpme.batched_mixed.batching import shrink_2d_cell
+
+            new_cell = shrink_2d_cell(new_cell, atoms.get_pbc(), positions[:n_atoms])
+        cell[0] = new_cell
+
+        new_sr = sr._replace(
+            positions=jnp.array(positions),
+            cell=jnp.array(cell),
+        )
+        self.batch = self.batch._replace(sr=new_sr)
 
     def calculate(
         self,
