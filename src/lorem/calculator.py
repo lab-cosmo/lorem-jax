@@ -8,6 +8,8 @@ from ase.calculators.calculator import (
     BaseCalculator,
     PropertyNotImplementedError,
 )
+from marathon.emit.checkpoint import read_msgpack
+from marathon.io import from_dict, read_yaml
 
 from lorem.neighborlist import NeighborListCache
 
@@ -78,8 +80,6 @@ class Calculator(BaseCalculator):
     ):
         from pathlib import Path
 
-        from marathon.io import from_dict, read_yaml
-
         folder = Path(folder)
 
         model = from_dict(read_yaml(folder / "model/model.yaml"))
@@ -88,8 +88,6 @@ class Calculator(BaseCalculator):
 
         baseline = read_yaml(folder / "model/baseline.yaml")
         species_to_weight = baseline["elemental"]
-
-        from marathon.emit.checkpoint import read_msgpack
 
         params = read_msgpack(folder / "model/model.msgpack")
 

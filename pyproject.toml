@@ -11,7 +11,7 @@ dependencies = [
     "jax",
     "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
     "jaxtyping",
-    "marathon-train[grain] @ git+https://github.com/sirmarcel/marathon.git@release/v0.2.0",
+    "marathon-train[grain]",
     "opsis",
     "optax",
 ]
