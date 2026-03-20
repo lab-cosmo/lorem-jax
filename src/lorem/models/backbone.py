@@ -8,12 +8,11 @@ from collections.abc import Sequence
 import e3x
 import flax.linen as nn
 from flax.core import FrozenDict
+from marathon.utils import masked
 
 
 def _masked(fn, x, mask):
-    """Apply fn only where mask is True. Lazy import from marathon."""
-    from marathon.utils import masked
-
+    """Apply fn only where mask is True."""
     return masked(fn, x, mask)
 
 
