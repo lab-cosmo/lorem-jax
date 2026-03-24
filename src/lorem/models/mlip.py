@@ -30,6 +30,7 @@ class Lorem(nn.Module):
     cutoff_fn: str = "cosine_cutoff"
     radial_basis: str = "basic_bernstein"
     lr: bool = True
+    lr_skip: bool = False
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
@@ -220,6 +221,15 @@ class Lorem(nn.Module):
 
             scalar_potential = potentials[..., 0][..., None]
             spherical_potential = potentials[..., 1:].reshape(num_atoms, 1, -1, 1)
+
+            # -- direct electrostatic skip connection --
+            if self.lr_skip:
+                alpha = self.param(
+                    "lr_skip_weight", nn.initializers.constant(1.0), (1,)
+                )
+                energy += (
+                    alpha[0] * scalar_charges[..., 0] * scalar_potential[..., 0]
+                ) * atom_mask
 
             # -- combine LR potentials back into local features --
             spherical_potential = e3x.nn.Dense(s, use_bias=False)(spherical_potential)
