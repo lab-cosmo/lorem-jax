@@ -157,6 +157,15 @@ def main():
     model = from_dict(model_config["model"])
     cutoff = model.cutoff
 
+    cutoff_override = settings.pop("cutoff", None)
+    if cutoff_override is not None:
+        cutoff_override = float(cutoff_override)
+        assert cutoff_override >= cutoff, (
+            f"cutoff override ({cutoff_override}) must be >= model cutoff ({cutoff})"
+        )
+        comms.talk(f"overriding data pipeline cutoff: {cutoff} -> {cutoff_override}")
+        cutoff = cutoff_override
+
     params = model.init(init_key, *model.dummy_inputs())
 
     if print_model_summary:
