@@ -93,6 +93,9 @@ def main():
     worker_buffer_size = settings.pop("worker_buffer_size", 2)
     worker_buffer_size_valid = settings.pop("worker_buffer_size_valid", worker_buffer_size)
 
+    # optional: override cutoff for data pipeline (Ewald real-space sum)
+    cutoff_override = settings.pop("cutoff", None)
+
     # if we didn't use all the settings, emit a warning
     if len(settings) > 0:
         comms.warn("didn't use all entries in settings.yaml, we ignored:")
@@ -157,7 +160,6 @@ def main():
     model = from_dict(model_config["model"])
     cutoff = model.cutoff
 
-    cutoff_override = settings.pop("cutoff", None)
     if cutoff_override is not None:
         cutoff_override = float(cutoff_override)
         assert cutoff_override >= cutoff, (
