@@ -267,7 +267,9 @@ def main():
     comms.talk(f"properties: {list(properties.keys())}")
 
     to_sample = model.to_sample(
-        cutoff=cutoff, keys=keys, properties=properties,
+        cutoff=cutoff,
+        keys=keys,
+        properties=properties,
         dtype="float64" if enable_x64 else "float32",
     )
 
@@ -974,11 +976,10 @@ def main():
                 atoms = source[i]
                 if all([f.filter(atoms) for f in filters]):
                     sample = to_sample.map(atoms)
-                    if filter_empty.filter(sample):
-                        yield Record(
-                            data=sample,
-                            metadata=RecordMetadata(index=i, record_key=i),
-                        )
+                    yield Record(
+                        data=sample,
+                        metadata=RecordMetadata(index=i, record_key=i),
+                    )
 
         batches = [b.data for b in batcher(it())]
         test[name] = (batches, save)
