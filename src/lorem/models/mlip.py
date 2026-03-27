@@ -31,6 +31,8 @@ class Lorem(nn.Module):
     radial_basis: str = "basic_bernstein"
     lr: bool = True
     lr_skip: bool = False
+    charge_species_bias: bool = False
+    charge_species_bias_std: float = 0.1
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
@@ -204,6 +206,16 @@ class Lorem(nn.Module):
         if self.lr:
             # -- compute LR potentials --
             scalar_charges = masked(MLP(features=[2 * d, 1]), nodes_scalar, atom_mask)
+            if self.charge_species_bias:
+                scalar_charges = (
+                    scalar_charges
+                    + nn.Embed(
+                        num_embeddings=100,
+                        features=1,
+                        embedding_init=nn.initializers.normal(self.charge_species_bias_std),
+                    )(Z_i)
+                    * atom_mask[..., None]
+                )
             spherical_charges = e3x.nn.TensorDense(
                 features=1,
                 use_bias=False,
@@ -224,9 +236,7 @@ class Lorem(nn.Module):
 
             # -- direct electrostatic skip connection --
             if self.lr_skip:
-                alpha = self.param(
-                    "lr_skip_weight", nn.initializers.constant(1.0), (1,)
-                )
+                alpha = self.param("lr_skip_weight", nn.initializers.constant(1.0), (1,))
                 energy += (
                     alpha[0] * scalar_charges[..., 0] * scalar_potential[..., 0]
                 ) * atom_mask
