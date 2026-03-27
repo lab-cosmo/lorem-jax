@@ -225,7 +225,6 @@ def main():
         DataLoader,
         DataSource,
         FilterAboveNumAtoms,
-        FilterEmpty,
         FilterMixedPBC,
         FilterNoop,
         IndexSampler,
@@ -248,8 +247,6 @@ def main():
     batcher = get_batcher()  # only used for its class methods
 
     # -- setup filters for dataloaders --
-    filter_empty = FilterEmpty()
-
     filters = [FilterNoop()]
     if should_filter_mixedpbc:
         filters.append(FilterMixedPBC())
@@ -309,7 +306,6 @@ def main():
                 operations=[
                     *filters,
                     to_sample,
-                    FilterEmpty(),
                     get_batcher(valid=True),
                 ],
                 worker_count=worker_count_valid,
@@ -323,8 +319,7 @@ def main():
             atoms = source_valid[i]
             if all([f.filter(atoms) for f in filters]):
                 sample = to_sample.map(atoms)
-                if filter_empty.filter(sample):
-                    yield sample
+                yield sample
 
     valid_stats = get_stats(valid_samples(), keys=keys, properties=properties)
 
@@ -351,14 +346,12 @@ def main():
                 RandomRotation(),
                 *filters,
                 to_sample,
-                FilterEmpty(),
                 get_batcher(),
             ]
         else:
             operations = [
                 *filters,
                 to_sample,
-                FilterEmpty(),
                 get_batcher(),
             ]
 
