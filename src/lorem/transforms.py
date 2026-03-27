@@ -19,10 +19,13 @@ class ToSample(MapTransform):
     stress: bool = False
     lr_wavelength: float | None = None
     smearing: float | None = None
+    dtype: str = "float32"
 
     def map(self, atoms):
+        import numpy as np
         from lorem.batching import to_sample
 
+        dtype = np.float64 if self.dtype == "float64" else np.float32
         properties = self.properties if self.properties is not None else DEFAULT_PROPERTIES
         return to_sample(
             atoms,
@@ -34,6 +37,7 @@ class ToSample(MapTransform):
             lr_wavelength=self.lr_wavelength,
             smearing=self.smearing,
             properties=properties,
+            dtype=dtype,
         )
 
 

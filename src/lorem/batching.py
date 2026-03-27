@@ -97,9 +97,10 @@ def to_sample(
     lr_wavelength=None,
     smearing=None,
     properties=DEFAULT_PROPERTIES,
+    dtype=np.float32,
 ):
     structure = jaxpme_prepare(
-        atoms, cutoff, lr_wavelength=lr_wavelength, smearing=smearing, dtype=np.float32
+        atoms, cutoff, lr_wavelength=lr_wavelength, smearing=smearing, dtype=dtype
     )
     labels = to_labels(
         atoms,

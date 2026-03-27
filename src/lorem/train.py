@@ -269,7 +269,10 @@ def main():
     batcher_config["properties"] = properties
     comms.talk(f"properties: {list(properties.keys())}")
 
-    to_sample = model.to_sample(cutoff=cutoff, keys=keys, properties=properties)
+    to_sample = model.to_sample(
+        cutoff=cutoff, keys=keys, properties=properties,
+        dtype="float64" if enable_x64 else "float32",
+    )
 
     n_train = len(source_train)
     n_valid = len(source_valid)
