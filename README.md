@@ -201,4 +201,4 @@ tox -e format     # auto-format
 BSD-3-Clause
 
 
-This project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @PicoCentauri and @sirmarcel, who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days.
+This project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by [@PicoCentauri](https://github.com/PicoCentauri) and [@sirmarcel](https://github.com/sirmarcel), who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days.
