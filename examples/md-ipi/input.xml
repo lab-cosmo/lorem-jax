@@ -43,7 +43,7 @@
             <tau units='femtosecond'> 100 </tau>
         </thermostat>
         <efield>
-          <amp unit=v/ang> [ 0 , 0 , 0.1 ] </amp>
+          <amp unit="v/ang"> [ 0, 0, 0.1 ] </amp>
           <freq units="thz"> 0 </freq>
         </efield>
         <bec mode="driver"/>
