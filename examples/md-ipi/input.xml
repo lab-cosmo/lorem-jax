@@ -38,9 +38,13 @@
 
     <motion mode='driven_dynamics'>
       <driven_dynamics mode='eda-nvt'>
-        <timestep units='femtosecond'> 1 </timestep>
-        <efield unit=v/ang>
-          <amp> [ 0 , 0 , 0.1 ] </amp>
+        <timestep units='femtosecond'> 0.5 </timestep>
+        <thermostat mode='svr'>
+            <tau units='femtosecond'> 100 </tau>
+        </thermostat>
+        <efield>
+          <amp unit=v/ang> [ 0 , 0 , 0.1 ] </amp>
+          <freq units="thz"> 0 </freq>
         </efield>
         <bec mode="driver"/>
       <asr_threshold > 1e-5 </asr_threshold>
