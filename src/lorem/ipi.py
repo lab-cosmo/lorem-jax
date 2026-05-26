@@ -4,7 +4,7 @@ import numpy as np
 
 import json
 
-from ipi.pes.ase import ASEDriver
+from ipi.pes._ase import ASEDriver
 
 from lorem.calculator import Calculator
 
