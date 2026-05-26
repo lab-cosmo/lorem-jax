@@ -33,7 +33,10 @@ addopts = [
     "--cov-report=",
     "--import-mode=append",
 ]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    "ignore:jax.core.get_opaque_trace_state is deprecated.:DeprecationWarning",
+]
 
 [tool.ruff]
 exclude = ["src/lorem/_version.py"]

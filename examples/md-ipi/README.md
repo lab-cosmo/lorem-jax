@@ -29,7 +29,7 @@ i-pi input.xml > i-pi.out &
 sleep 5
 
 # Start LOREM driver
-i-pi-driver -a lorem -u -m lorem \
+i-pi-driver-py -a lorem -u -m lorem \
     -o model_path=${MODEL_PATH},template=start.xyz \
     > driver.out &
 
