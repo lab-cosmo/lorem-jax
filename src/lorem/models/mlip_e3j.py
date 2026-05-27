@@ -99,7 +99,16 @@ def _paths_by_l_out(L1: int, L2: int, L3: int):
 
 @functools.cache
 def _tensor_product(L1: int, L2: int, L3: int):
-    """Channel-wise e3j TensorProduct in LEADING_CHANNELS layout, unsorted.
+    """Channel-wise e3j TensorProduct, unsorted, in TRAILING_CHANNELS layout
+    with `mode="MAP"`.
+
+    We want matching-channel TPs: with inputs of shape `(..., F, dim_in)`
+    in LEADING_CHANNELS we'd need the fused CUDA kernel to broadcast over
+    the channel axis (i.e. MAP semantics). But per the e3j docs, MAP is
+    only valid with TRAILING_CHANNELS — on LEADING_CHANNELS the kernel
+    interprets `mode="OUTER"` literally and emits an outer-product channel
+    axis. We work around this by transposing to `(..., dim_in, F)` before
+    calling the TP and back after (cheap, JIT-fused).
 
     Source irreps: `1x0e+...+1x{L1}` and `1x0e+...+1x{L2}`. Output filter
     selects irreps up to l_out = L3.
@@ -107,8 +116,8 @@ def _tensor_product(L1: int, L2: int, L3: int):
     return e3j.core.TensorProduct(
         source=(_scalar_irreps(L1), _scalar_irreps(L2)),
         target=_scalar_irreps(L3),
-        layout="LEADING_CHANNELS",
-        mode="OUTER",
+        layout="TRAILING_CHANNELS",
+        mode="MAP",
         sort=False,
     )
 
@@ -236,8 +245,13 @@ class _TensorE3j(nn.Module):
             jax.nn.initializers.normal(stddev=1.0 / np.sqrt(F)),
             (1, L1 + 1, 1, L2 + 1, 1, L3 + 1, F),
         )
+        # The TP uses TRAILING_CHANNELS + MAP (see `_tensor_product`).
+        # Transpose [..., F, dim] -> [..., dim, F], TP, then back.
         tp = _tensor_product(L1, L2, L3)
-        z = tp(x, y)  # [N, F, target.dim]
+        x_t = jnp.moveaxis(x, -2, -1)
+        y_t = jnp.moveaxis(y, -2, -1)
+        z_t = tp(x_t, y_t)  # [..., target.dim, F]
+        z = jnp.moveaxis(z_t, -1, -2)  # [..., F, target.dim]
         path_indices = _path_slices(L1, L2, L3)
         paths_by_l = _paths_by_l_out(L1, L2, L3)
         out_blocks = []
