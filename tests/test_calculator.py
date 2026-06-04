@@ -178,6 +178,9 @@ def test_calculator_cell_change_within_skin():
     """
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     atoms = bulk("Ar") * [2, 2, 2]
+    # Rattle for non-zero forces: on a perfect crystal forces vanish by
+    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
+    atoms.rattle(0.1, seed=42)
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
@@ -258,6 +261,9 @@ def test_calculator_combined_position_and_cell_change():
     """Both position and cell change within skin — correct results."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     atoms = bulk("Ar") * [2, 2, 2]
+    # Rattle for non-zero forces: on a perfect crystal forces vanish by
+    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
+    atoms.rattle(0.1, seed=42)
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
