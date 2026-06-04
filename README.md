@@ -1,6 +1,6 @@
 # LOREM-JAX
 
-JAX implementation of [LOREM](https://arxiv.org/abs/2504.20462) (Learning Long-Range Representations with Equivariant Messages), a machine learning interatomic potential with equivariant long-range message passing.
+JAX implementation of [LOREM](https://openreview.net/forum?id=pZI9e4SW9P) (Learning Long-Range Representations with Equivariant Messages), a machine learning interatomic potential with equivariant long-range message passing.
 
 Built on [JAX](https://github.com/jax-ml/jax), [Flax](https://github.com/google/flax), [e3x](https://github.com/google-research/e3x), and [jax-pme](https://github.com/lab-cosmo/jax-pme).
 
