@@ -21,12 +21,8 @@ class Calculator(BaseCalculator):
     def todict(self):
         return self.parameters
 
-    implemented_properties = [
-        "born_effective_charges",
-        "energy",
-        "forces",
-        "stress",
-    ]
+    # default; rebuilt per-instance in __init__ from what the model predicts
+    implemented_properties = ["energy", "forces"]
 
     def __init__(
         self,
@@ -36,6 +32,7 @@ class Calculator(BaseCalculator):
         cutoff,
         atoms=None,
         stress=False,
+        bec=False,
         add_offset=True,
         double_precision=False,
         skin=0.25,
@@ -48,8 +45,12 @@ class Calculator(BaseCalculator):
 
         self._nl_cache = NeighborListCache(skin=skin)
 
-        if not stress:
-            self.implemented_properties = ["born_effective_charges", "energy", "forces"]
+        # only advertise what the model actually produces
+        self.implemented_properties = ["energy", "forces"]
+        if stress:
+            self.implemented_properties.append("stress")
+        if bec:
+            self.implemented_properties.append("born_effective_charges")
 
         predict_fn = lambda params, batch: pred_fn(params, batch, stress=stress)
 
@@ -70,6 +71,7 @@ class Calculator(BaseCalculator):
         if species_weights is None:
             species_weights = {}
             kwargs.setdefault("add_offset", False)
+        kwargs.setdefault("bec", _model_predicts_bec(model))
         return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
 
     @classmethod
@@ -91,6 +93,7 @@ class Calculator(BaseCalculator):
 
         params = read_msgpack(folder / "model/model.msgpack")
 
+        kwargs.setdefault("bec", _model_predicts_bec(model))
         return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
@@ -234,3 +237,9 @@ class Calculator(BaseCalculator):
     def get_potential_energy(self, atoms=None, force_consistent=True):
         # force_consistent is ignored; we are always consistent
         return self.get_property(name="energy", atoms=atoms)
+
+
+def _model_predicts_bec(model):
+    from lorem.models.bec import LoremBEC
+
+    return isinstance(model, LoremBEC)

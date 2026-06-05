@@ -47,6 +47,31 @@ def test_calculator_bec_get_property():
     assert bec.shape == (len(atoms), 3, 3)
 
 
+def test_implemented_properties_non_bec():
+    """A plain Lorem model must not advertise born_effective_charges (issue #4)."""
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    calc = Calculator.from_model(model)
+    assert "born_effective_charges" not in calc.implemented_properties
+    assert "stress" not in calc.implemented_properties
+    assert "energy" in calc.implemented_properties
+    assert "forces" in calc.implemented_properties
+
+
+def test_implemented_properties_bec():
+    """A LoremBEC model advertises born_effective_charges."""
+    model = LoremBEC(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    calc = Calculator.from_model(model)
+    assert "born_effective_charges" in calc.implemented_properties
+
+
+def test_implemented_properties_stress():
+    """The stress flag toggles the stress capability independently of BEC."""
+    model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
+    calc = Calculator.from_model(model, stress=True)
+    assert "stress" in calc.implemented_properties
+    assert "born_effective_charges" not in calc.implemented_properties
+
+
 def test_calculator_skin_default():
     """Calculator defaults to skin=0.25."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
