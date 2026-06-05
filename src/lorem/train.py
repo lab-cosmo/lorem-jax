@@ -481,7 +481,8 @@ def main():
         median_train_batch_size = int(np.median(real["samples"]))
 
         median_batch_size = median_train_batch_size
-        batches_per_epoch = num_batches
+        # num_batches spans probe_epochs, so divide it out
+        batches_per_epoch = int(num_batches / probe_epochs)
     else:
         pipeline_speed = 0.0
         median_batch_size = median_valid_batch_size
