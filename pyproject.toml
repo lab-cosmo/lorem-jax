@@ -12,6 +12,9 @@ dependencies = [
     "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
     "jaxtyping",
     "marathon-train[grain]",
+    # grain 0.2.17 reads an unparsed absl flag in worker threads on linux
+    # (xprof regression, google/grain c06d4565); pin until fixed upstream.
+    "grain<0.2.17",
     "opsis",
     "optax",
 ]
