@@ -17,7 +17,9 @@ class LOREM_driver(ASEDriver):
         self.model_path = model_path
         self.skin = skin
         super().__init__(template, *args, **kwargs)
-        self.capabilities.append("born_effective_charges")
+        # only advertise BEC if the model predicts it
+        if "born_effective_charges" in self.ase_calculator.implemented_properties:
+            self.capabilities.append("born_effective_charges")
 
     def check_parameters(self):
         super().check_parameters()
