@@ -13,3 +13,6 @@ _version.py
 build/
 dist/
 uv.lock
+
+# training run outputs (train.py defaults workdir to ./run)
+run/
