@@ -12,8 +12,8 @@ Unlike the standard i-PI efield example which reads fixed Born Effective Charges
 
 ## Files
 
-- `input.xml` — i-PI configuration for driven dynamics (EDA-NVE). Adapt the E-field parameters (`amp`, `freq`, `peak`, `sigma`), cell size, and `start.xyz` to your system.
-- `start.xyz` — Starting structure in atomic units. Replace with your system's geometry.
+- `input.xml` — i-PI configuration for driven dynamics (EDA-NVT). Adapt the E-field parameters (`amp`, `freq`) and `start.xyz` to your system.
+- `start.xyz` — Starting structure in extended XYZ format (positions in ångström, cell in the `Lattice` header). Replace with your system's geometry.
 - `run.sh` — Launch script. Set `MODEL_PATH` to your trained checkpoint folder.
 
 ## Running
@@ -45,8 +45,8 @@ i-PI outputs will be written to `i-pi.*` files. Key outputs:
 
 ## Adapting to your system
 
-1. Replace `start.xyz` with your starting geometry (atomic units).
-2. Set the cell size in `input.xml` (large for isolated systems, physical for periodic).
+1. Replace `start.xyz` with your starting geometry (ångström, with the cell in the `Lattice` header).
+2. Set the cell size in `start.xyz`'s `Lattice` header (large for isolated systems, physical for periodic).
 3. Set `pbc='True'` in `<ffsocket>` if your system is periodic.
 4. Adjust E-field parameters to match your target excitation.
 5. Point `MODEL_PATH` in `run.sh` to your trained LoremBEC checkpoint.

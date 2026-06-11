@@ -7,14 +7,14 @@
   </ffsocket>
 
   <output prefix='i-pi'>
-    <trajectory filename='forces'>forces</trajectory>                <!--      total forces (a.u.): nuclear + q_e Z @ E(t) -->
-    <trajectory filename='Eforces'>Eforces</trajectory>              <!--     driven forces (a.u.): q_e Z @ E(t) -->
-    <trajectory filename='momenta'>momenta</trajectory>              <!--   nuclear momenta (a.u.) -->
-    <trajectory filename='velocities'>velocities</trajectory>        <!--   nuclear velocities (a.u.) -->
-    <trajectory filename='positions'>positions</trajectory>          <!-- nuclear positions (a.u.) -->
-    <trajectory filename='becx'>becx</trajectory>
-    <trajectory filename='becy'>becy</trajectory>
-    <trajectory filename='becz'>becz</trajectory>
+    <trajectory filename='forces' format='ase'>forces</trajectory>
+    <trajectory filename='Eforces' format='ase'>Eforces</trajectory>
+    <trajectory filename='momenta' format='ase'>momenta</trajectory>
+    <trajectory filename='velocities' format='ase'>velocities</trajectory>
+    <trajectory filename='positions' format='ase'>positions</trajectory>
+    <trajectory filename='becx' format='ase'>becx</trajectory>
+    <trajectory filename='becy' format='ase'>becy</trajectory>
+    <trajectory filename='becz' format='ase'>becz</trajectory>
     <properties filename='properties.out' verbosity='low' > [ step, time, conserved, kinetic_md, potential, Efield, Eenvelope ] </properties>
   </output>
 
@@ -28,25 +28,26 @@
     </forces>
 
     <initialize nbeads='1'>
-      <file mode='xyz' units='atomic_unit' > start.xyz </file>
-      <velocities mode='thermal' units='kelvin'> 0 </velocities>         <!-- no initial velocities: excited by E-field only -->
-      <cell mode="manual" units="atomic_unit">[ 50,0,0, 0,50,0, 0,0,50 ]</cell>
+      <file mode='ase' units='angstrom' > start.xyz </file>
+      <velocities mode='thermal' units='kelvin'> 300 </velocities> 
     </initialize>
 
     <ensemble>
-      <temperature units='kelvin'>0</temperature>
+      <temperature units='kelvin'> 300 </temperature>
     </ensemble>
 
     <motion mode='driven_dynamics'>
-      <driven_dynamics mode='eda-nve'>                  <!-- Electric Dipole Approximation (EDA) on top of NVE -->
-        <timestep units='femtosecond'> 1 </timestep>
+      <driven_dynamics mode='eda-nvt'>
+        <timestep units='femtosecond'> 0.5 </timestep>
+        <thermostat mode='svr'>
+            <tau units='femtosecond'> 100 </tau>
+        </thermostat>
         <efield>
-          <amp> [ 0 , 5e-2 , 0 ] </amp>                <!-- amplitude of the electric field pulse in a.u. -->
-          <freq units="thz"> 115 </freq>                <!-- frequency of the electric field pulse in THz -->
-          <peak units="picosecond"> 0.2 </peak>         <!-- peak of the electric field pulse -->
-          <sigma units="picosecond"> 0.05 </sigma>      <!-- width (std of gaussian envelope) -->
+          <amp units="v/ang"> [ 0, 0, 0.1 ] </amp>
+          <freq units="thz"> 0 </freq>
         </efield>
-        <bec mode="driver"/>                            <!-- BECs computed by LOREM, not read from file -->
+        <bec mode="driver"/>
+      <asr_threshold > 1e-5 </asr_threshold>
       </driven_dynamics>
     </motion>
 

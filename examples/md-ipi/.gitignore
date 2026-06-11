@@ -1,0 +1,5 @@
+*.xyz*
+*.extxyz*
+*.out*
+!start.xyz
+RESTART
