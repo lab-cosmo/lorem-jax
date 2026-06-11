@@ -214,7 +214,6 @@ def main():
         DataLoader,
         DataSource,
         FilterAboveNumAtoms,
-        FilterEmpty,
         FilterMixedPBC,
         FilterNoop,
         IndexSampler,
@@ -237,8 +236,6 @@ def main():
     batcher = get_batcher()  # only used for its class methods
 
     # -- setup filters for dataloaders --
-    filter_empty = FilterEmpty()
-
     filters = [FilterNoop()]
     if should_filter_mixedpbc:
         filters.append(FilterMixedPBC())
@@ -295,7 +292,6 @@ def main():
                 operations=[
                     *filters,
                     to_sample,
-                    FilterEmpty(),
                     get_batcher(valid=True),
                 ],
                 worker_count=worker_count_valid,
@@ -308,9 +304,7 @@ def main():
         for i in range(n_valid):
             atoms = source_valid[i]
             if all([f.filter(atoms) for f in filters]):
-                sample = to_sample.map(atoms)
-                if filter_empty.filter(sample):
-                    yield sample
+                yield to_sample.map(atoms)
 
     valid_stats = get_stats(valid_samples(), keys=keys, properties=properties)
 
@@ -337,14 +331,12 @@ def main():
                 RandomRotation(),
                 *filters,
                 to_sample,
-                FilterEmpty(),
                 get_batcher(),
             ]
         else:
             operations = [
                 *filters,
                 to_sample,
-                FilterEmpty(),
                 get_batcher(),
             ]
 
@@ -967,12 +959,10 @@ def main():
             for i in range(len(source)):
                 atoms = source[i]
                 if all([f.filter(atoms) for f in filters]):
-                    sample = to_sample.map(atoms)
-                    if filter_empty.filter(sample):
-                        yield Record(
-                            data=sample,
-                            metadata=RecordMetadata(index=i, record_key=i),
-                        )
+                    yield Record(
+                        data=to_sample.map(atoms),
+                        metadata=RecordMetadata(index=i, record_key=i),
+                    )
 
         batches = [b.data for b in batcher(it())]
         test[name] = (batches, save)
