@@ -61,7 +61,9 @@ class LoremBEC(nn.Module):
         atom_mask = realspace.atom_mask
 
         R_ij = (
-            R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[mlip.pair_to_structure])
+            R[j]
+            - R[i]
+            + jnp.einsum("pA,pAa->pa", cell_shifts, cell[mlip.pair_to_structure])
         )
 
         num_atoms = Z_i.shape[0]
@@ -297,7 +299,9 @@ class LoremBEC(nn.Module):
 
         # per-structure energies
         energy = (
-            jax.ops.segment_sum(energies, realspace.atom_to_structure, realspace.cell.shape[0])
+            jax.ops.segment_sum(
+                energies, realspace.atom_to_structure, realspace.cell.shape[0]
+            )
             * realspace.structure_mask
         )
 

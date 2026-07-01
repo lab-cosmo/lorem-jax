@@ -90,6 +90,9 @@ def test_calculator_skin_results_match_no_skin():
     """Calculator with skin gives same results as skin=0 on static structure."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     atoms = bulk("Ar") * [2, 2, 2]
+    # Rattle for non-zero forces: on a perfect crystal forces vanish by
+    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
+    atoms.rattle(0.1, seed=42)
 
     calc_skin = Calculator.from_model(model, skin=0.25)
     calc_skin.calculate(atoms)
@@ -113,6 +116,9 @@ def test_calculator_skin_reuses_neighborlist():
     """Small displacement reuses cached neighbor list, results stay correct."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     atoms = bulk("Ar") * [2, 2, 2]
+    # Rattle for non-zero forces: on a perfect crystal forces vanish by
+    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
+    atoms.rattle(0.1, seed=42)
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
