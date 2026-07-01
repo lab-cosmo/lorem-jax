@@ -21,6 +21,7 @@ from lorem.transforms import ToBatch, ToSample
 
 class Lorem(nn.Module):
     cutoff: float = 5.0
+    num_k: int | None = None
     max_degree: int = 6
     max_degree_lr: int = 2
     num_features: int = 128
@@ -240,7 +241,14 @@ class Lorem(nn.Module):
     def atoms_to_batch(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        sample = to_sample(atoms, self.cutoff, energy=False, forces=False, stress=False)
+        sample = to_sample(
+            atoms,
+            cutoff=self.cutoff,
+            num_k=self.num_k,
+            energy=False,
+            forces=False,
+            stress=False,
+        )
         batch = to_batch([sample], [])
 
         return jax.tree.map(lambda x: jnp.array(x), batch)

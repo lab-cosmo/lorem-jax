@@ -29,16 +29,22 @@ class Calculator(BaseCalculator):
         pred_fn,
         species_weights,
         params,
-        cutoff,
+        cutoff=None,
         atoms=None,
         stress=False,
         bec=False,
         add_offset=True,
         double_precision=False,
         skin=0.25,
+        num_k=None,
+        lr_wavelength=None,
+        smearing=None,
     ):
         self.params = params
         self.cutoff = cutoff
+        self.num_k = num_k
+        self.lr_wavelength = lr_wavelength
+        self.smearing = smearing
         self.skin = skin
         self.add_offset = add_offset
         self.double_precision = double_precision
@@ -72,7 +78,9 @@ class Calculator(BaseCalculator):
             species_weights = {}
             kwargs.setdefault("add_offset", False)
         kwargs.setdefault("bec", _model_predicts_bec(model))
-        return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
+        kwargs.setdefault("cutoff", model.cutoff)
+        kwargs.setdefault("num_k", getattr(model, "num_k", None))
+        return cls(model.predict, species_weights, params, **kwargs)
 
     @classmethod
     def from_checkpoint(
@@ -94,7 +102,9 @@ class Calculator(BaseCalculator):
         params = read_msgpack(folder / "model/model.msgpack")
 
         kwargs.setdefault("bec", _model_predicts_bec(model))
-        return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
+        kwargs.setdefault("cutoff", model.cutoff)
+        kwargs.setdefault("num_k", getattr(model, "num_k", None))
+        return cls(model.predict, species_to_weight, params, **kwargs)
 
     def update(self, atoms):
         if self._nl_cache.needs_update(atoms):
@@ -116,18 +126,12 @@ class Calculator(BaseCalculator):
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        nl_cutoff = self.cutoff + self.skin
-
-        # Derive Ewald parameters from physical cutoff so the long-range
-        # decomposition is unchanged when using the extended cutoff.
-        lr_wavelength = self.cutoff / 8.0
-        smearing = lr_wavelength * 2.0
-
         sample = to_sample(
             atoms,
-            nl_cutoff,
-            lr_wavelength=lr_wavelength,
-            smearing=smearing,
+            cutoff=self.cutoff,
+            num_k=self.num_k,
+            lr_wavelength=self.lr_wavelength,
+            smearing=self.smearing,
             energy=False,
             forces=False,
             stress=False,

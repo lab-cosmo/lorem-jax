@@ -11,7 +11,8 @@ NO_PADDING = ["k", "atoms_pbc", "pbc", "pairs_nonpbc"]
 
 @dataclass(frozen=True)
 class ToSample(MapTransform):
-    cutoff: float
+    num_k: int
+    cutoff: float | None = None
     keys: tuple | None = None
     properties: dict | None = None
     energy: bool = True
@@ -26,7 +27,8 @@ class ToSample(MapTransform):
         properties = self.properties if self.properties is not None else DEFAULT_PROPERTIES
         return to_sample(
             atoms,
-            self.cutoff,
+            num_k=self.num_k,
+            cutoff=self.cutoff,
             keys=self.keys,
             energy=self.energy,
             forces=self.forces,

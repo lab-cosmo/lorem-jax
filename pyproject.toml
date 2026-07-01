@@ -9,7 +9,7 @@ dependencies = [
     "flax",
     "ipi",
     "jax",
-    "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git",
+    "jax-pme @ git+https://github.com/lab-cosmo/jax-pme.git@fix/batched-tiled-derive-cutoff",
     "jaxtyping",
     "marathon-train[grain]",
     # grain 0.2.17 reads an unparsed absl flag in worker threads on linux

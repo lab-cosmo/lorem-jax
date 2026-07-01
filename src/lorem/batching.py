@@ -89,17 +89,23 @@ def to_batch(
 
 def to_sample(
     atoms,
-    cutoff,
+    cutoff=None,
     keys=None,
     energy=True,
     forces=True,
     stress=False,
+    num_k=None,
     lr_wavelength=None,
     smearing=None,
     properties=DEFAULT_PROPERTIES,
 ):
     structure = jaxpme_prepare(
-        atoms, cutoff, lr_wavelength=lr_wavelength, smearing=smearing, dtype=np.float32
+        atoms,
+        cutoff,
+        num_k=num_k,
+        lr_wavelength=lr_wavelength,
+        smearing=smearing,
+        dtype=np.float32,
     )
     labels = to_labels(
         atoms,
