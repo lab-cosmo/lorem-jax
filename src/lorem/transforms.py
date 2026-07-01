@@ -11,8 +11,9 @@ NO_PADDING = ["k", "atoms_pbc", "pbc", "pairs_nonpbc"]
 
 @dataclass(frozen=True)
 class ToSample(MapTransform):
-    num_k: int
-    cutoff: float | None = None
+    cutoff: float
+    num_k: int | None = None
+    cutoff_ewald: float | None = None
     keys: tuple | None = None
     properties: dict | None = None
     energy: bool = True
@@ -27,8 +28,9 @@ class ToSample(MapTransform):
         properties = self.properties if self.properties is not None else DEFAULT_PROPERTIES
         return to_sample(
             atoms,
-            num_k=self.num_k,
             cutoff=self.cutoff,
+            num_k=self.num_k,
+            cutoff_ewald=self.cutoff_ewald,
             keys=self.keys,
             energy=self.energy,
             forces=self.forces,
@@ -53,19 +55,19 @@ class ToBatch:
     max_total_nobpc_pairs: int = 2**42
 
     def count_samples(self, batch):
-        return batch.sr.structure_mask.sum()
+        return batch.realspace.structure_mask.sum()
 
     def info(self, batch):
         return _info(batch)
 
     def __call__(self, input_iterator):
         def k_size(rec):
-            lr = rec.data.structure.get("lr", None)
+            lr = rec.data.ewald_structure.get("lr", None)
             kg = getattr(lr, "k_grid", None)
             return 0 if kg is None else kg.shape[0]
 
         def nobpc_size(rec):
-            lr = rec.data.structure.get("lr", None)
+            lr = rec.data.ewald_structure.get("lr", None)
             return len(lr.centers) if hasattr(lr, "centers") else 0
 
         records, last_meta = [], None
@@ -144,9 +146,10 @@ class ToBatch:
 def _info(batch):
     # non-padded entries
     real = {
-        "pairs": batch.sr.pair_mask.sum(),
-        "atoms": batch.sr.atom_mask.sum(),
-        "samples": batch.sr.structure_mask.sum(),
+        "pairs": batch.mlip.pair_mask.sum(),
+        "ewald_pairs": batch.realspace.pair_mask.sum(),
+        "atoms": batch.realspace.atom_mask.sum(),
+        "samples": batch.realspace.structure_mask.sum(),
         "pairs_nonpbc": batch.nopbc.pair_mask.sum(),
         "atoms_pbc": batch.pbc.atom_mask.sum(),
         "pbc": batch.pbc.structure_mask.sum(),
@@ -155,9 +158,10 @@ def _info(batch):
 
     # total entries w/ padding
     total = {
-        "pairs": batch.sr.pair_mask.shape[0],
-        "atoms": batch.sr.atom_mask.shape[0],
-        "samples": batch.sr.structure_mask.shape[0],
+        "pairs": batch.mlip.pair_mask.shape[0],
+        "ewald_pairs": batch.realspace.pair_mask.shape[0],
+        "atoms": batch.realspace.atom_mask.shape[0],
+        "samples": batch.realspace.structure_mask.shape[0],
         "pairs_nonpbc": batch.nopbc.centers.shape[0],
         "atoms_pbc": batch.pbc.atom_mask.size,
         "pbc": batch.pbc.structure_mask.shape[0],
@@ -166,9 +170,10 @@ def _info(batch):
 
     # shapes relevant for JIT
     shape = {
-        "samples": batch.sr.structure_mask.shape[0],
-        "pairs": batch.sr.pair_mask.shape[0],
-        "atoms": batch.sr.atom_mask.shape[0],
+        "samples": batch.realspace.structure_mask.shape[0],
+        "pairs": batch.mlip.pair_mask.shape[0],
+        "ewald_pairs": batch.realspace.pair_mask.shape[0],
+        "atoms": batch.realspace.atom_mask.shape[0],
         "pairs_nonpbc": batch.nopbc.centers.shape[0],
         "atoms_pbc": batch.pbc.atom_mask.shape[1],
         "pbc": batch.pbc.structure_mask.shape[0],

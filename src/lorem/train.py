@@ -254,7 +254,9 @@ def main():
     batcher_config["properties"] = properties
     comms.talk(f"properties: {list(properties.keys())}")
 
-    to_sample = model.to_sample(num_k=model.num_k, keys=keys, properties=properties)
+    to_sample = model.to_sample(
+        cutoff=model.cutoff, num_k=model.num_k, keys=keys, properties=properties
+    )
 
     n_train = len(source_train)
     n_valid = len(source_valid)

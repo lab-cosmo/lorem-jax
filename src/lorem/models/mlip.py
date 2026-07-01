@@ -47,20 +47,23 @@ class Lorem(nn.Module):
     def __call__(
         self,
         Z_i,
-        sr,
+        mlip,
+        realspace,
         nopbc,
         pbc,
     ):
-        R = sr.positions
-        i = sr.centers
-        j = sr.others
-        cell = sr.cell
-        cell_shifts = sr.cell_shifts
-        pair_mask = sr.pair_mask
-        atom_mask = sr.atom_mask
+        R = realspace.positions
+        i = mlip.centers
+        j = mlip.others
+        cell = realspace.cell
+        cell_shifts = mlip.cell_shifts
+        pair_mask = mlip.pair_mask
+        atom_mask = realspace.atom_mask
 
         R_ij = (
-            R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[sr.pair_to_structure])
+            R[j]
+            - R[i]
+            + jnp.einsum("pA,pAa->pa", cell_shifts, cell[mlip.pair_to_structure])
         )
 
         num_atoms = Z_i.shape[0]
@@ -212,9 +215,12 @@ class Lorem(nn.Module):
             )(nodes_spherical).reshape(num_atoms, -1)
             charges = jnp.concatenate([scalar_charges, spherical_charges], axis=-1)
 
+            # Long-range part uses the decoupled Ewald neighbor list
+            # (``realspace``: its cutoff is set by num_k, independent of the
+            # short-range cutoff), sharing the same positions as the SR part.
             calculator = Ewald()
             potentials = jax.vmap(
-                lambda q: calculator.potentials(q, sr, nopbc, pbc),
+                lambda q: calculator.potentials(q, realspace, nopbc, pbc),
                 in_axes=-1,
                 out_axes=-1,
             )(charges)
@@ -261,20 +267,21 @@ class Lorem(nn.Module):
         return self.atoms_to_batch(atoms)[:-1]
 
     def energy(self, params, batch):
-        sr = batch[1]
+        realspace = batch.realspace
         energies = self.apply(
             params,
             batch.atomic_numbers,
-            batch.sr,
+            batch.mlip,
+            batch.realspace,
             batch.nopbc,
             batch.pbc,
         )
-        energies *= sr.atom_mask
+        energies *= realspace.atom_mask
 
         return jnp.sum(energies), energies
 
     def predict(self, params, batch, stress=False):
-        sr = batch[1]
+        realspace = batch.realspace
 
         energy_and_derivatives_fn = jax.value_and_grad(
             self.energy, allow_int=True, has_aux=True, argnums=1
@@ -282,11 +289,13 @@ class Lorem(nn.Module):
         batch_energy_and_atom_energies, grads = energy_and_derivatives_fn(params, batch)
         _, energies = batch_energy_and_atom_energies
 
-        grads = grads.sr
+        grads = grads.realspace
 
         energy = (
-            jax.ops.segment_sum(energies, sr.atom_to_structure, sr.cell.shape[0])
-            * sr.structure_mask
+            jax.ops.segment_sum(
+                energies, realspace.atom_to_structure, realspace.cell.shape[0]
+            )
+            * realspace.structure_mask
         )
 
         forces = -grads.positions
@@ -296,12 +305,12 @@ class Lorem(nn.Module):
         if stress:
             stress = (
                 jax.ops.segment_sum(
-                    jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
-                    sr.atom_to_structure,
-                    num_segments=sr.cell.shape[0],
+                    jnp.einsum("ia,ib->iab", realspace.positions, grads.positions),
+                    realspace.atom_to_structure,
+                    num_segments=realspace.cell.shape[0],
                 )
-                + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
-            ) * sr.structure_mask[:, None, None]
+                + jnp.einsum("sAa,sAb->sab", realspace.cell, grads.cell)
+            ) * realspace.structure_mask[:, None, None]
             results["stress"] = stress
 
         return results
