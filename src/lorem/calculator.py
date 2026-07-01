@@ -29,16 +29,22 @@ class Calculator(BaseCalculator):
         pred_fn,
         species_weights,
         params,
-        cutoff,
+        cutoff=None,
         atoms=None,
         stress=False,
         bec=False,
         add_offset=True,
         double_precision=False,
         skin=0.25,
+        num_k=None,
+        lr_wavelength=None,
+        smearing=None,
     ):
         self.params = params
         self.cutoff = cutoff
+        self.num_k = num_k
+        self.lr_wavelength = lr_wavelength
+        self.smearing = smearing
         self.skin = skin
         self.add_offset = add_offset
         self.double_precision = double_precision
@@ -72,7 +78,9 @@ class Calculator(BaseCalculator):
             species_weights = {}
             kwargs.setdefault("add_offset", False)
         kwargs.setdefault("bec", _model_predicts_bec(model))
-        return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
+        kwargs.setdefault("cutoff", model.cutoff)
+        kwargs.setdefault("num_k", getattr(model, "num_k", None))
+        return cls(model.predict, species_weights, params, **kwargs)
 
     @classmethod
     def from_checkpoint(
@@ -94,7 +102,9 @@ class Calculator(BaseCalculator):
         params = read_msgpack(folder / "model/model.msgpack")
 
         kwargs.setdefault("bec", _model_predicts_bec(model))
-        return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
+        kwargs.setdefault("cutoff", model.cutoff)
+        kwargs.setdefault("num_k", getattr(model, "num_k", None))
+        return cls(model.predict, species_to_weight, params, **kwargs)
 
     def update(self, atoms):
         if self._nl_cache.needs_update(atoms):
@@ -116,18 +126,12 @@ class Calculator(BaseCalculator):
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        nl_cutoff = self.cutoff + self.skin
-
-        # Derive Ewald parameters from physical cutoff so the long-range
-        # decomposition is unchanged when using the extended cutoff.
-        lr_wavelength = self.cutoff / 8.0
-        smearing = lr_wavelength * 2.0
-
         sample = to_sample(
             atoms,
-            nl_cutoff,
-            lr_wavelength=lr_wavelength,
-            smearing=smearing,
+            cutoff=self.cutoff,
+            num_k=self.num_k,
+            lr_wavelength=self.lr_wavelength,
+            smearing=self.smearing,
             energy=False,
             forces=False,
             stress=False,
@@ -135,22 +139,29 @@ class Calculator(BaseCalculator):
         batch = to_batch([sample], [])
         self.batch = jax.tree.map(lambda x: jnp.array(x), batch)
 
-        max_cell_shift = int(np.abs(np.array(self.batch.sr.cell_shifts)).max())
+        # Cover both neighbor lists: the Ewald list may use a larger (num_k
+        # derived) cutoff than the short-range one, so its cell shifts can be
+        # larger. The cache must search far enough to rebuild both correctly.
+        max_cell_shift = max(
+            int(np.abs(np.array(self.batch.mlip.cell_shifts)).max()),
+            int(np.abs(np.array(self.batch.realspace.cell_shifts)).max()),
+        )
         self._nl_cache.save_reference(atoms, max_cell_shift=max_cell_shift)
 
     def _update_geometry(self, atoms):
         """Update positions and cell in cached batch without rebuilding
-        the neighbor list. The model recomputes R_ij from the updated
-        sr.positions and sr.cell, and the Ewald calculator recomputes
-        k-vectors from sr.cell (pbc.k_grid stores only integer frequency
-        indices). So forces, energy, and stress remain correct."""
-        sr = self.batch.sr
+        the neighbor lists. Both the short-range and the Ewald parts share
+        realspace.positions/realspace.cell: the model recomputes R_ij from
+        them, and the Ewald calculator recomputes k-vectors from realspace.cell
+        (pbc.k_grid stores only integer frequency indices). So forces, energy,
+        and stress remain correct."""
+        realspace = self.batch.realspace
         n_atoms = len(atoms)
 
-        positions = np.zeros(np.array(sr.positions).shape, dtype=np.float32)
+        positions = np.zeros(np.array(realspace.positions).shape, dtype=np.float32)
         positions[:n_atoms] = atoms.get_positions()
 
-        cell = np.array(sr.cell)
+        cell = np.array(realspace.cell)
         new_cell = atoms.get_cell()[:].astype(np.float32)
         if atoms.get_pbc().sum() == 2:
             from jaxpme.batched_mixed.batching import shrink_2d_cell
@@ -158,11 +169,11 @@ class Calculator(BaseCalculator):
             new_cell = shrink_2d_cell(new_cell, atoms.get_pbc(), positions[:n_atoms])
         cell[0] = new_cell
 
-        new_sr = sr._replace(
+        new_realspace = realspace._replace(
             positions=jnp.array(positions),
             cell=jnp.array(cell),
         )
-        self.batch = self.batch._replace(sr=new_sr)
+        self.batch = self.batch._replace(realspace=new_realspace)
 
     def calculate(
         self,
@@ -179,16 +190,16 @@ class Calculator(BaseCalculator):
         for key in self.implemented_properties:
             if key == "energy":
                 actual_results[key] = float(
-                    results[key][self.batch.sr.structure_mask].squeeze()
+                    results[key][self.batch.realspace.structure_mask].squeeze()
                 )
             elif key == "forces":
                 actual_results[key] = np.array(
-                    results[key][self.batch.sr.atom_mask].reshape(-1, 3),
+                    results[key][self.batch.realspace.atom_mask].reshape(-1, 3),
                     dtype=np.float32,
                 )
             elif key == "stress":
                 virial = np.array(
-                    results[key][self.batch.sr.structure_mask].reshape(3, 3),
+                    results[key][self.batch.realspace.structure_mask].reshape(3, 3),
                     dtype=np.float32,
                 )
                 volume = atoms.get_volume()
@@ -200,7 +211,7 @@ class Calculator(BaseCalculator):
         # "born_effective_charges" in (natoms, 3, 3) layout for ase compatibility
         if "apt" in results:
             actual_results["born_effective_charges"] = np.array(
-                results["apt"][self.batch.sr.atom_mask].reshape(-1, 3, 3),
+                results["apt"][self.batch.realspace.atom_mask].reshape(-1, 3, 3),
                 dtype=np.float32,
             )
 
