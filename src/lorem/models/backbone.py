@@ -201,7 +201,13 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
 def spherical_norm(X, max_degree):
     squared = jax.lax.square(X)
     trace = degree_wise_trace(squared, max_degree)
-    norm = jnp.sqrt(trace)
+    # sqrt's own gradient blows up at 0; since this primal is itself
+    # differentiated again when something downstream needs a second
+    # derivative through this custom_jvp (e.g. forces -> loss -> grad wrt
+    # params), feed sqrt a safe value there instead of just guarding the
+    # jvp's division below.
+    trace_safe = jnp.where(trace > 0, trace, 1.0)
+    norm = jnp.where(trace > 0, jnp.sqrt(trace_safe), 0.0)
     return norm
 
 
