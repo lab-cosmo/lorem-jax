@@ -329,6 +329,7 @@ class LoremBEC(nn.Module):
         from ase.build import bulk
 
         atoms = bulk("Ar") * [2, 2, 2]
+        atoms.info["total_charge"] = 0.0
 
         return self.atoms_to_batch(atoms)[:-1]
 

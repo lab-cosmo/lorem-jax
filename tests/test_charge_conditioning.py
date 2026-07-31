@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from pathlib import Path
 
 from ase.build import bulk, molecule
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import read
 
 from lorem.batching import to_batch, to_sample
@@ -38,6 +39,35 @@ def test_total_charge_defaults_to_zero():
     sample = to_sample(atoms, cutoff=5.0, energy=False, forces=False, stress=False)
     batch = to_batch([sample], [])
     assert float(batch.total_charge[0]) == 0.0
+
+
+def test_total_charge_survives_marathon_prepare_roundtrip(tmp_path):
+    # marathon.grain.prepare() only persists atoms.info entries that are
+    # declared in its own `properties` dict (storage="atoms.info") — unlike
+    # to_sample()/to_batch() above, which always read atoms.info directly.
+    # Real training datasets go through this prepare()/DataSource path, so
+    # total_charge must be declared here or it's silently dropped.
+    from marathon.grain import DataSource, prepare
+
+    def make(q):
+        atoms = molecule("H2O")
+        atoms.info["total_charge"] = q
+        atoms.calc = SinglePointCalculator(
+            atoms, energy=0.0, forces=np.zeros((len(atoms), 3))
+        )
+        return atoms
+
+    properties = {
+        "energy": {"shape": (1,), "storage": "atoms.calc"},
+        "forces": {"shape": ("atom", 3), "storage": "atoms.calc"},
+        "total_charge": {"shape": (1,), "storage": "atoms.info"},
+    }
+
+    prepare([make(1.0), make(-1.0)], folder=tmp_path / "ds", properties=properties)
+
+    src = DataSource(tmp_path / "ds")
+    values = sorted(float(src[i].info["total_charge"]) for i in range(len(src)))
+    assert values == [-1.0, 1.0]
 
 
 def test_missing_total_charge_warns_once(capsys):

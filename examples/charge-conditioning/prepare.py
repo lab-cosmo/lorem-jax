@@ -17,9 +17,12 @@ idx_train, idx_valid, idx_test = get_splits(
 reporter = comms.reporter()
 reporter.start("processing")
 
-# `total_charge` is a model input read directly from atoms.info (see
-# lorem/batching.py), not a training label, so it is deliberately not part
-# of this properties dict.
+# `total_charge` is a model input, not a training label, so lorem/batching.py
+# reads it directly from atoms.info rather than through the keys/loss-weight
+# mechanism below. But it still needs to be declared here with
+# storage="atoms.info" — marathon.grain.prepare() only persists atoms.info
+# entries that are listed in this properties dict; anything else is silently
+# dropped when the dataset is serialized to disk.
 PROPERTIES = {
     "energy": {
         "shape": (1,),
@@ -32,6 +35,10 @@ PROPERTIES = {
         "storage": "atoms.calc",
         "report_unit": (1000, "meV/Å"),
         "symbol": "F",
+    },
+    "total_charge": {
+        "shape": (1,),
+        "storage": "atoms.info",
     },
 }
 
