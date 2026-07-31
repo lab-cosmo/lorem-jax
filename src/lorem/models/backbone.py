@@ -223,37 +223,7 @@ def spherical_norm_last_axis(X, max_degree):
 # -- charge conditioning --
 
 
-def segment_softmax(logits, segment_ids, mask, num_segments):
-    # softmax within each segment; masked entries get weight 0, and
-    # segments with no unmasked entries (padding) get all-zero, not NaN
-    neg_inf = jnp.finfo(logits.dtype).min
-    masked_logits = jnp.where(mask, logits, neg_inf)
-
-    segment_maxes = jax.ops.segment_max(masked_logits, segment_ids, num_segments=num_segments)
-    segment_maxes = jnp.where(jnp.isfinite(segment_maxes), segment_maxes, 0.0)
-
-    weights = jnp.where(mask, jnp.exp(masked_logits - segment_maxes[segment_ids]), 0.0)
-    denom = jax.ops.segment_sum(weights, segment_ids, num_segments=num_segments)
-    denom = jnp.where(denom > 0, denom, 1.0)
-
-    return weights / denom[segment_ids]
-
-
-def conserving_redistribution(values, target, weights, segment_ids, mask, num_segments):
-    # shift `values` per segment so segment_sum(result) == target, using
-    # non-negative `weights` to decide how the correction is distributed
-    weights = weights * mask
-    current = jax.ops.segment_sum(values * mask, segment_ids, num_segments=num_segments)
-    excess = target - current
-
-    weight_sum = jax.ops.segment_sum(weights, segment_ids, num_segments=num_segments)
-    weight_sum = jnp.where(weight_sum > 0, weight_sum, 1.0)
-
-    correction = weights * (excess / weight_sum)[segment_ids]
-    return (values + correction) * mask
-
-
-class ChargeFiLM(nn.Module):
+class ChargeEmbedding(nn.Module):
     # FiLM conditioning of invariant node features on the per-atom charge Q_i
     features: int
 
@@ -266,49 +236,3 @@ class ChargeFiLM(nn.Module):
         )
         gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
         return (1.0 + gamma) * x + beta  # near-identity at init
-
-
-class ChargeInit(nn.Module):
-    # splits Q onto atoms: c_i = Q * softmax_i(MLP(h_i)), sums to Q by construction
-    features: int
-
-    @nn.compact
-    def __call__(self, h, Q, atom_to_structure, atom_mask, num_structures):
-        logits = _masked(nn.Dense(1), h, atom_mask)[..., 0]
-        weights = segment_softmax(logits, atom_to_structure, atom_mask, num_structures)
-        return weights * Q[atom_to_structure] * atom_mask
-
-
-class ChargeUpdate(nn.Module):
-    # one message-pass + conserving-redistribution round for the charge channel
-    features: int
-
-    @nn.compact
-    def __call__(
-        self,
-        c,
-        h,
-        edges_scalar,
-        i,
-        pair_mask,
-        atom_mask,
-        Q,
-        atom_to_structure,
-        num_atoms,
-        num_structures,
-    ):
-        messages = (
-            jax.ops.segment_sum(
-                _masked(nn.Dense(1, use_bias=False), edges_scalar, pair_mask),
-                i,
-                num_segments=num_atoms,
-            )[..., 0]
-            * atom_mask
-        )
-        c_tilde = (c + messages) * atom_mask
-
-        weights = jax.nn.softplus(_masked(nn.Dense(1), h, atom_mask)[..., 0]) * atom_mask
-
-        return conserving_redistribution(
-            c_tilde, Q, weights, atom_to_structure, atom_mask, num_structures
-        )

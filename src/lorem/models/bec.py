@@ -7,9 +7,7 @@ from jaxpme.batched_mixed import Ewald
 
 from lorem.models.backbone import (
     MLP,
-    ChargeFiLM,
-    ChargeInit,
-    ChargeUpdate,
+    ChargeEmbedding,
     Initial,
     RadialCoefficients,
     Update,
@@ -36,8 +34,6 @@ class LoremBEC(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = False
     initialize_node_features: bool = False
-    charge_conditioning: str = "film"  # "none" | "film" | "latent", see backbone.py
-    film_every_layer: bool = False  # reapply FiLM at every Update() call, not just the first
 
     @property
     def to_batch(self):
@@ -71,7 +67,6 @@ class LoremBEC(nn.Module):
 
         num_atoms = Z_i.shape[0]
         num_pairs = R_ij.shape[0]
-        num_structures = cell.shape[0]
 
         max_degree = self.max_degree
         max_degree_lr = self.max_degree_lr
@@ -80,9 +75,6 @@ class LoremBEC(nn.Module):
 
         d = self.num_features
         s = self.num_spherical_features
-
-        use_film = self.charge_conditioning == "film"
-        use_charge_channel = self.charge_conditioning == "latent"
 
         Q_i = Q[atom_to_structure] * atom_mask
 
@@ -122,21 +114,6 @@ class LoremBEC(nn.Module):
         else:
             nodes_scalar = jnp.zeros((num_atoms, d), dtype=species.dtype)
 
-        if use_charge_channel:
-            c = ChargeInit(d)(nodes_scalar, Q, atom_to_structure, atom_mask, num_structures)
-            c = ChargeUpdate(d)(
-                c,
-                nodes_scalar,
-                edges_scalar,
-                i,
-                pair_mask,
-                atom_mask,
-                Q,
-                atom_to_structure,
-                num_atoms,
-                num_structures,
-            )
-
         updates = (
             jax.ops.segment_sum(
                 masked(nn.Dense(d, use_bias=False), edges_scalar, pair_mask),
@@ -145,12 +122,9 @@ class LoremBEC(nn.Module):
             )
             * atom_mask[..., None]
         )
-        if use_charge_channel:
-            updates = jnp.concatenate([updates, c[..., None]], axis=-1)
 
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
-        if use_film:
-            nodes_scalar = ChargeFiLM(d)(Q_i, nodes_scalar, atom_mask)
+        nodes_scalar = ChargeEmbedding(d)(Q_i, nodes_scalar, atom_mask)
 
         coefficients = masked(
             nn.Dense(num_l * s, use_bias=False), edges_scalar, pair_mask
@@ -174,24 +148,7 @@ class LoremBEC(nn.Module):
         norms = spherical_norm_last_axis(nodes_spherical, max_degree)
         updates = (norms * l_factors[None, None, :, None]).reshape(num_atoms, -1)
 
-        if use_charge_channel:
-            c = ChargeUpdate(d)(
-                c,
-                nodes_scalar,
-                edges_scalar,
-                i,
-                pair_mask,
-                atom_mask,
-                Q,
-                atom_to_structure,
-                num_atoms,
-                num_structures,
-            )
-            updates = jnp.concatenate([updates, c[..., None]], axis=-1)
-
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
-        if use_film and self.film_every_layer:
-            nodes_scalar = ChargeFiLM(d)(Q_i, nodes_scalar, atom_mask)
 
         # -- initial prediction --
         energy = masked(MLP(features=[d, d, 1]), nodes_scalar, atom_mask)[..., 0]
@@ -207,20 +164,6 @@ class LoremBEC(nn.Module):
                 cutoffs,
                 pair_mask,
             )
-            if use_charge_channel:
-                c = ChargeUpdate(d)(
-                    c,
-                    nodes_scalar,
-                    edges_scalar,
-                    i,
-                    pair_mask,
-                    atom_mask,
-                    Q,
-                    atom_to_structure,
-                    num_atoms,
-                    num_structures,
-                )
-
             updates = (
                 jax.ops.segment_sum(
                     masked(
@@ -233,12 +176,8 @@ class LoremBEC(nn.Module):
                 )
                 * atom_mask[..., None]
             )
-            if use_charge_channel:
-                updates = jnp.concatenate([updates, c[..., None]], axis=-1)
 
             nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
-            if use_film and self.film_every_layer:
-                nodes_scalar = ChargeFiLM(d)(Q_i, nodes_scalar, atom_mask)
 
             if self.equivariant_message_passing:
                 coefficients = masked(
@@ -267,11 +206,7 @@ class LoremBEC(nn.Module):
 
                 norms = spherical_norm_last_axis(nodes_spherical, max_degree)
                 updates = (norms * l_factors[None, None, :, None]).reshape(num_atoms, -1)
-                if use_charge_channel:
-                    updates = jnp.concatenate([updates, c[..., None]], axis=-1)
                 nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
-                if use_film and self.film_every_layer:
-                    nodes_scalar = ChargeFiLM(d)(Q_i, nodes_scalar, atom_mask)
 
             # -- residual prediction --
             energy += masked(MLP(features=[d, d, 1]), nodes_scalar, atom_mask)[..., 0]
@@ -309,8 +244,6 @@ class LoremBEC(nn.Module):
             norms = (norms * l_factors[None, None, :, None]).reshape(num_atoms, -1)
             updates = jnp.concatenate([scalar_potential, norms], axis=-1)
             nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
-            if use_film and self.film_every_layer:
-                nodes_scalar = ChargeFiLM(d)(Q_i, nodes_scalar, atom_mask)
 
             # -- residual prediction --
             energy += masked(MLP(features=[d, d, 1]), nodes_scalar, atom_mask)[..., 0]

@@ -1,11 +1,11 @@
 # Training example: charge conditioning
 
-Trains `Lorem` with `charge_conditioning="film"` on a small mixed-charge-state
-dataset, to check that conditioning the model on the total charge `Q` of a
-structure actually helps it tell charge states apart. `model.yaml` has a
-comment showing how to switch to `charge_conditioning="latent"` (the
-conserving latent-charge channel, see `backbone.py`) instead — swap it in and
-rerun to compare; whichever does better is what we'd keep.
+Trains `Lorem` on a small mixed-charge-state dataset, to check that
+conditioning the model on the total charge `Q` of a structure actually helps
+it tell charge states apart. `Lorem`/`LoremBEC` always condition on `Q` via
+FiLM (see `backbone.py`'s `ChargeEmbedding`) — there's no config knob to turn this
+off, since a missing/zero `Q` is harmless (the FiLM layer is a near-identity
+transform at `Q=0`).
 
 ## Data
 
