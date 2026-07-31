@@ -62,7 +62,7 @@ def test_spherical_norm():
 
 
 def test_spherical_norm_gradient():
-    """Verify the custom JVP is consistent with finite differences."""
+    """Verify the gradient is consistent with finite differences."""
     prev = jax.config.jax_enable_x64
     jax.config.update("jax_enable_x64", True)
     try:
@@ -86,6 +86,24 @@ def test_spherical_norm_gradient():
         np.testing.assert_allclose(grad_custom, grad_fd, atol=1e-5)
     finally:
         jax.config.update("jax_enable_x64", prev)
+
+
+def test_spherical_norm_second_derivative_at_zero():
+    """2nd order gradients of spherical_norm must stay finite at an exact-zero input."""
+
+    max_degree = 2
+    num_lm = (max_degree + 1) ** 2
+    x0 = jnp.zeros((1, num_lm))
+
+    def f(x):
+        return jnp.sum(spherical_norm(x, max_degree))
+
+    def second_grad(x):
+        return jax.grad(lambda x: jnp.sum(jax.grad(f)(x)))(x)
+
+    for fn in (second_grad, jax.jit(second_grad)):
+        g2 = fn(x0)
+        assert bool(jnp.all(jnp.isfinite(g2)))
 
 
 def test_spherical_norm_last_axis():

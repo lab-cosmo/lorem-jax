@@ -196,13 +196,7 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
     )(x)
 
 
-# x/||x|| (the gradient of a vector norm) is genuinely non-smooth at x=0 --
-# no jnp.where-based guarding fixes a *second* derivative through a real
-# singularity (needed wherever training differentiates through this twice,
-# e.g. forces -> loss -> grad wrt params). Regularizing with a small eps
-# makes norm (and all its derivatives) smooth everywhere, including at
-# x=0, so plain autodiff handles arbitrary differentiation order without
-# any custom_jvp at all.
+# keeps x/||x|| (the norm's gradient) smooth at x=0 for higher-order autodiff
 _SPHERICAL_NORM_EPS = 1e-12
 
 
