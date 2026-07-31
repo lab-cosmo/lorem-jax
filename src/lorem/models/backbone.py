@@ -215,7 +215,13 @@ def spherical_norm(X, max_degree):
 def spherical_norm_jvp(max_degree, primals, tangents):
     (x,) = primals
     (x_dot,) = tangents
-    primal_out = spherical_norm(x, max_degree)
+    # inlined rather than calling spherical_norm(x, max_degree): that would
+    # recurse into this same custom_jvp, which isn't well-defined once this
+    # rule itself gets differentiated again for a second derivative
+    squared = jax.lax.square(x)
+    trace = degree_wise_trace(squared, max_degree)
+    trace_safe = jnp.where(trace > 0, trace, 1.0)
+    primal_out = jnp.where(trace > 0, jnp.sqrt(trace_safe), 0.0)
 
     x_hat = x / degree_wise_repeat(jnp.where(primal_out > 0, primal_out, 1), max_degree, -1)
 
