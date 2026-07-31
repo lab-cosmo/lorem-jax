@@ -2,7 +2,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import functools
 from collections.abc import Sequence
 
 import e3x
@@ -197,36 +196,20 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
     )(x)
 
 
-@functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
+# x/||x|| (the gradient of a vector norm) is genuinely non-smooth at x=0 --
+# no jnp.where-based guarding fixes a *second* derivative through a real
+# singularity (needed wherever training differentiates through this twice,
+# e.g. forces -> loss -> grad wrt params). Regularizing with a small eps
+# makes norm (and all its derivatives) smooth everywhere, including at
+# x=0, so plain autodiff handles arbitrary differentiation order without
+# any custom_jvp at all.
+_SPHERICAL_NORM_EPS = 1e-12
+
+
 def spherical_norm(X, max_degree):
     squared = jax.lax.square(X)
     trace = degree_wise_trace(squared, max_degree)
-    # sqrt's own gradient blows up at 0; since this primal is itself
-    # differentiated again when something downstream needs a second
-    # derivative through this custom_jvp (e.g. forces -> loss -> grad wrt
-    # params), feed sqrt a safe value there instead of just guarding the
-    # jvp's division below.
-    trace_safe = jnp.where(trace > 0, trace, 1.0)
-    norm = jnp.where(trace > 0, jnp.sqrt(trace_safe), 0.0)
-    return norm
-
-
-@spherical_norm.defjvp
-def spherical_norm_jvp(max_degree, primals, tangents):
-    (x,) = primals
-    (x_dot,) = tangents
-    # inlined rather than calling spherical_norm(x, max_degree): that would
-    # recurse into this same custom_jvp, which isn't well-defined once this
-    # rule itself gets differentiated again for a second derivative
-    squared = jax.lax.square(x)
-    trace = degree_wise_trace(squared, max_degree)
-    trace_safe = jnp.where(trace > 0, trace, 1.0)
-    primal_out = jnp.where(trace > 0, jnp.sqrt(trace_safe), 0.0)
-
-    x_hat = x / degree_wise_repeat(jnp.where(primal_out > 0, primal_out, 1), max_degree, -1)
-
-    tangent_out = degree_wise_trace(x_dot * x_hat, max_degree)
-    return primal_out, tangent_out
+    return jnp.sqrt(trace + _SPHERICAL_NORM_EPS)
 
 
 def spherical_norm_last_axis(X, max_degree):
