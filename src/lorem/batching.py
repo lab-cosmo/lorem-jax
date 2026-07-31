@@ -4,10 +4,13 @@ from collections import namedtuple
 
 from jaxpme.batched_mixed.batching import get_batch as jaxpme_batcher
 from jaxpme.batched_mixed.batching import prepare as jaxpme_prepare
+from marathon import comms
 from marathon.data.batching import batch_labels
 from marathon.data.properties import DEFAULT_PROPERTIES
 from marathon.data.sample import to_labels
 from marathon.utils import next_size
+
+_warned_missing_total_charge = False
 
 Batch = namedtuple(
     "Batch",
@@ -16,6 +19,7 @@ Batch = namedtuple(
         "sr",
         "nopbc",
         "pbc",
+        "total_charge",
         "labels",
     ),
 )
@@ -82,9 +86,15 @@ def to_batch(
     Z = np.concatenate([sample.structure["atomic_numbers"] for sample in samples])
     atomic_numbers[: len(Z)] = Z
 
+    # total_charge is a model input, like atomic_numbers, not a training
+    # target, so always populate it regardless of `keys`.
+    total_charge = np.zeros(num_structures, dtype=sr.cell.dtype)
+    for idx, sample in enumerate(samples):
+        total_charge[idx] = sample.structure["total_charge"]
+
     labels = batch_labels(labels, num_structures, num_atoms, keys, properties=properties)
 
-    return Batch(atomic_numbers, sr, nopbc, pbc, labels)
+    return Batch(atomic_numbers, sr, nopbc, pbc, total_charge, labels)
 
 
 def to_sample(
@@ -101,6 +111,17 @@ def to_sample(
     structure = jaxpme_prepare(
         atoms, cutoff, lr_wavelength=lr_wavelength, smearing=smearing, dtype=np.float32
     )
+    # read directly from atoms.info, bypassing the keys/properties label
+    # machinery, so it's always available regardless of requested labels
+    if "total_charge" not in atoms.info:
+        global _warned_missing_total_charge
+        if not _warned_missing_total_charge:
+            comms.warn(
+                "atoms.info['total_charge'] not set; assuming total_charge=0.0 "
+                "for this and all further structures missing it"
+            )
+            _warned_missing_total_charge = True
+    structure["total_charge"] = np.float32(atoms.info.get("total_charge", 0.0))
     labels = to_labels(
         atoms,
         keys=keys,

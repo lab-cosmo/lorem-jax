@@ -1,0 +1,11 @@
+model:
+  lorem.Lorem:
+    cutoff: 6.0
+    max_degree_lr: 2
+    num_features: 32
+    max_degree: 3
+    num_message_passing: 1
+    num_spherical_features: 4
+    lr: false
+    charge_conditioning: "film"  # alternative: "latent" (conserving charge channel, backbone.py)
+    # film_every_layer: true  # reapply FiLM at every Update() call, not just the first
