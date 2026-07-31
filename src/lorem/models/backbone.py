@@ -229,3 +229,21 @@ def spherical_norm_last_axis(X, max_degree):
         in_axes=1,
         out_axes=1,
     )(X)
+
+
+# -- charge conditioning --
+
+
+class ChargeConditioning(nn.Module):
+    # FiLM conditioning of invariant node features on the per-atom charge Q_i
+    features: int
+
+    @nn.compact
+    def __call__(self, Q_i, x, atom_mask):
+        gamma_beta = _masked(
+            MLP(features=[self.features, 2 * self.features]),
+            Q_i[..., None],
+            atom_mask,
+        )
+        gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
+        return (1.0 + gamma) * x + beta  # near-identity at init
