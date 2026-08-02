@@ -484,3 +484,65 @@ def test_field_conditioning_l1_with_lr_finite_and_direction_sensitive():
     calc_b.calculate(atoms_b)
 
     assert not np.allclose(calc_a.results["energy"], calc_b.results["energy"], atol=1e-6)
+
+
+# -- Calculator cache invalidation: total_charge/external_field live in
+# atoms.info, not positions/cell, so a reused Calculator instance must
+# detect changes to them independently of the neighbor-list/geometry cache
+# (a magnitude sweep at fixed geometry is exactly this pattern) --
+
+
+def test_calculator_picks_up_external_field_change_at_fixed_geometry():
+    model = _make_model(field_conditioning="l1")
+    key = jax.random.key(0)
+    params = model.init(key, *model.dummy_inputs())
+
+    calc = Calculator.from_model(model, params=params)
+    atoms = molecule("H2O")
+    atoms.info["total_charge"] = 0.0
+
+    atoms.info["external_field"] = [0.3, -0.2, 0.5]
+    calc.calculate(atoms)
+    e_pos = calc.results["energy"]
+
+    atoms.info["external_field"] = [-0.3, 0.2, -0.5]
+    calc.calculate(atoms)
+    e_neg = calc.results["energy"]
+
+    assert not np.allclose(e_pos, e_neg, atol=1e-6)
+
+    # matches an independent, freshly-constructed calculator -- not just
+    # "different from e_pos" but actually correct
+    fresh_calc = Calculator.from_model(model, params=params)
+    atoms_neg = molecule("H2O")
+    atoms_neg.info["total_charge"] = 0.0
+    atoms_neg.info["external_field"] = [-0.3, 0.2, -0.5]
+    fresh_calc.calculate(atoms_neg)
+
+    assert np.allclose(e_neg, fresh_calc.results["energy"], atol=1e-6)
+
+
+def test_calculator_picks_up_total_charge_change_at_fixed_geometry():
+    model = _make_model()
+    key = jax.random.key(0)
+    params = model.init(key, *model.dummy_inputs())
+
+    calc = Calculator.from_model(model, params=params)
+    atoms = molecule("H2O")
+
+    atoms.info["total_charge"] = 1.0
+    calc.calculate(atoms)
+    e_plus = calc.results["energy"]
+
+    atoms.info["total_charge"] = -1.0
+    calc.calculate(atoms)
+    e_minus = calc.results["energy"]
+
+    assert not np.allclose(e_plus, e_minus, atol=1e-6)
+
+    fresh_calc = Calculator.from_model(model, params=params)
+    atoms_minus = molecule("H2O")
+    atoms_minus.info["total_charge"] = -1.0
+    fresh_calc.calculate(atoms_minus)
+
+    assert np.allclose(e_minus, fresh_calc.results["energy"], atol=1e-6)
