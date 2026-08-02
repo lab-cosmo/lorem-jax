@@ -236,3 +236,22 @@ class ChargeEmbedding(nn.Module):
         )
         gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
         return (1.0 + gamma) * x + beta  # near-identity at init
+
+
+# -- field conditioning --
+
+
+def spherical_field(E_i, max_degree=1):
+    # E_i: [num_atoms, 3] raw per-atom field vector. spherical_harmonics's l=0
+    # slot is always exactly 1 regardless of input magnitude (even zero) -- it
+    # carries no info about E_i and must be zeroed before any learned layer
+    # sees it, or we inject a field-independent constant into the invariant
+    # channel.
+    harmonics = e3x.so3.spherical_harmonics(E_i, max_degree, r_is_normalized=True)
+    harmonics = harmonics.at[..., 0].set(0.0)
+    return harmonics[:, None, :, None]  # -> [num_atoms, 1, (max_degree+1)**2, 1]
+
+
+def field_magnitude(E_i):
+    # epsilon-regularized like spherical_norm, same idiom
+    return jnp.sqrt(jnp.sum(jax.lax.square(E_i), axis=-1) + _SPHERICAL_NORM_EPS)
