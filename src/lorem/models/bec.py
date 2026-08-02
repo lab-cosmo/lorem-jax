@@ -12,8 +12,6 @@ from lorem.models.backbone import (
     RadialCoefficients,
     Update,
     degree_wise_repeat_last_axis,
-    field_magnitude,
-    spherical_field,
     spherical_norm_last_axis,
 )
 from lorem.models.backbone import (
@@ -36,7 +34,6 @@ class LoremBEC(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = False
     initialize_node_features: bool = False
-    field_conditioning: str = "none"  # "none" | "l1" | "l1_l0"
 
     @property
     def to_batch(self):
@@ -54,7 +51,6 @@ class LoremBEC(nn.Module):
         nopbc,
         pbc,
         Q,
-        field,
     ):
         R = sr.positions
         i = sr.centers
@@ -81,7 +77,6 @@ class LoremBEC(nn.Module):
         s = self.num_spherical_features
 
         Q_i = Q[atom_to_structure] * atom_mask
-        E_i = field[atom_to_structure] * atom_mask[..., None]
 
         # empirical factors to make var of equivariant norm more uniform across l
         l_factors = (
@@ -130,8 +125,6 @@ class LoremBEC(nn.Module):
 
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
         nodes_scalar = ChargeEmbedding(d)(Q_i, nodes_scalar, atom_mask)
-        if self.field_conditioning == "l1_l0":
-            nodes_scalar = ChargeEmbedding(d)(field_magnitude(E_i), nodes_scalar, atom_mask)
 
         coefficients = masked(
             nn.Dense(num_l * s, use_bias=False), edges_scalar, pair_mask
@@ -150,12 +143,6 @@ class LoremBEC(nn.Module):
         nodes_spherical = e3x.nn.TensorDense(use_bias=False, include_pseudotensors=False)(
             nodes_spherical
         )
-
-        if self.field_conditioning != "none":
-            field_spherical = e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i))
-            nodes_spherical = e3x.nn.Tensor(include_pseudotensors=False)(
-                field_spherical, nodes_spherical
-            )
 
         # -- mix equivariant information into scalar node features --
         norms = spherical_norm_last_axis(nodes_spherical, max_degree)
@@ -276,9 +263,10 @@ class LoremBEC(nn.Module):
 
         atoms = bulk("Ar") * [2, 2, 2]
         atoms.info["total_charge"] = 0.0
-        atoms.info["external_field"] = [0.0, 0.0, 0.0]
 
-        return self.atoms_to_batch(atoms)[:-1]
+        # Batch always carries external_field (Lorem needs it), but
+        # LoremBEC.__call__ doesn't take it -- drop it along with labels.
+        return self.atoms_to_batch(atoms)[:-2]
 
     def energy(self, params, batch):
         sr = batch[1]
@@ -289,7 +277,6 @@ class LoremBEC(nn.Module):
             batch.nopbc,
             batch.pbc,
             batch.total_charge,
-            batch.external_field,
         )
         energies *= sr.atom_mask
         apt *= sr.atom_mask[:, None, None]
