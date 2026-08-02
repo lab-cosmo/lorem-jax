@@ -152,9 +152,33 @@ class Lorem(nn.Module):
         )
 
         if self.field_conditioning != "none":
+            # dipole-like coupling: E ~ -mu.F, the dominant (odd-in-field)
+            # term for polar molecules. A norm-based readout alone can never
+            # represent this since ||x|| = ||-x|| is structurally even -- so
+            # read out a learned per-atom l=1 "dipole" feature from the
+            # (field-independent) equivariant features and dot it directly
+            # with the raw field.
+            dipole_i = e3x.nn.Dense(1, use_bias=False)(nodes_spherical)[:, 0, 1:4, 0]
+            dipole_coupling = jnp.sum(dipole_i * E_i, axis=-1, keepdims=True)
+
+            # quadratic/polarizability-like coupling via CG tensor product +
+            # norm readout (even in field). Kept as an additive side branch,
+            # not an overwrite of nodes_spherical, so downstream equivariant
+            # features (message passing, LR multipoles, forces) stay
+            # geometry-pure.
             field_spherical = e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i))
-            nodes_spherical = e3x.nn.Tensor(include_pseudotensors=False)(
+            field_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
                 field_spherical, nodes_spherical
+            )
+            field_norms = spherical_norm_last_axis(field_coupled, max_degree)
+            field_norms = (field_norms * l_factors[None, None, :, None]).reshape(
+                num_atoms, -1
+            )
+
+            nodes_scalar = Update(d)(
+                nodes_scalar,
+                jnp.concatenate([dipole_coupling, field_norms], axis=-1),
+                atom_mask,
             )
 
         # -- mix equivariant information into scalar node features --

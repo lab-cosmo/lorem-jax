@@ -415,6 +415,53 @@ def test_field_conditioning_l1_l0_direction_sensitive():
     assert not np.allclose(calc_a.results["energy"], calc_b.results["energy"], atol=1e-6)
 
 
+# -- field-reversal asymmetry (a norm-only readout is structurally even in
+# the field, ||x|| == ||-x||, and can never represent the dominant linear
+# dipole-field term E ~ -mu.F; these catch a regression back to that state) --
+
+
+def test_field_conditioning_l1_not_symmetric_under_field_reversal():
+    model = _make_model(field_conditioning="l1")
+
+    atoms = molecule("H2O")
+    atoms.info["total_charge"] = 0.0
+
+    atoms_pos = atoms.copy()
+    atoms_pos.info["external_field"] = [0.3, -0.2, 0.5]
+    calc_pos = Calculator.from_model(model)
+    calc_pos.calculate(atoms_pos)
+
+    atoms_neg = atoms.copy()
+    atoms_neg.info["external_field"] = [-0.3, 0.2, -0.5]
+    calc_neg = Calculator.from_model(model)
+    calc_neg.calculate(atoms_neg)
+
+    assert not np.allclose(
+        calc_pos.results["energy"], calc_neg.results["energy"], atol=1e-6
+    )
+
+
+def test_field_conditioning_l1_l0_not_symmetric_under_field_reversal():
+    model = _make_model(field_conditioning="l1_l0")
+
+    atoms = molecule("H2O")
+    atoms.info["total_charge"] = 0.0
+
+    atoms_pos = atoms.copy()
+    atoms_pos.info["external_field"] = [0.3, -0.2, 0.5]
+    calc_pos = Calculator.from_model(model)
+    calc_pos.calculate(atoms_pos)
+
+    atoms_neg = atoms.copy()
+    atoms_neg.info["external_field"] = [-0.3, 0.2, -0.5]
+    calc_neg = Calculator.from_model(model)
+    calc_neg.calculate(atoms_neg)
+
+    assert not np.allclose(
+        calc_pos.results["energy"], calc_neg.results["energy"], atol=1e-6
+    )
+
+
 # -- lr on/off cross-check --
 
 
