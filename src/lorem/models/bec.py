@@ -21,6 +21,7 @@ from lorem.transforms import ToBatch, ToSample
 
 class LoremBEC(nn.Module):
     cutoff: float = 5.0
+    num_k: int | None = None
     max_degree: int = 6
     max_degree_lr: int = 2
     num_features: int = 128
@@ -46,20 +47,23 @@ class LoremBEC(nn.Module):
     def __call__(
         self,
         Z_i,
-        sr,
+        mlip,
+        realspace,
         nopbc,
         pbc,
     ):
-        R = sr.positions
-        i = sr.centers
-        j = sr.others
-        cell = sr.cell
-        cell_shifts = sr.cell_shifts
-        pair_mask = sr.pair_mask
-        atom_mask = sr.atom_mask
+        R = realspace.positions
+        i = mlip.centers
+        j = mlip.others
+        cell = realspace.cell
+        cell_shifts = mlip.cell_shifts
+        pair_mask = mlip.pair_mask
+        atom_mask = realspace.atom_mask
 
         R_ij = (
-            R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[sr.pair_to_structure])
+            R[j]
+            - R[i]
+            + jnp.einsum("pA,pAa->pa", cell_shifts, cell[mlip.pair_to_structure])
         )
 
         num_atoms = Z_i.shape[0]
@@ -216,9 +220,12 @@ class LoremBEC(nn.Module):
             )(nodes_spherical).reshape(num_atoms, -1)
             charges = jnp.concatenate([scalar_charges, spherical_charges], axis=-1)
 
+            # Long-range part uses the decoupled Ewald neighbor list
+            # (``realspace``: its cutoff is set by num_k, independent of the
+            # short-range cutoff), sharing the same positions as the SR part.
             calculator = Ewald()
             potentials = jax.vmap(
-                lambda q: calculator.potentials(q, sr, nopbc, pbc),
+                lambda q: calculator.potentials(q, realspace, nopbc, pbc),
                 in_axes=-1,
                 out_axes=-1,
             )(charges)
@@ -245,7 +252,14 @@ class LoremBEC(nn.Module):
     def atoms_to_batch(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        sample = to_sample(atoms, self.cutoff, energy=False, forces=False, stress=False)
+        sample = to_sample(
+            atoms,
+            cutoff=self.cutoff,
+            num_k=self.num_k,
+            energy=False,
+            forces=False,
+            stress=False,
+        )
         batch = to_batch([sample], [])
 
         return jax.tree.map(lambda x: jnp.array(x), batch)
@@ -258,21 +272,22 @@ class LoremBEC(nn.Module):
         return self.atoms_to_batch(atoms)[:-1]
 
     def energy(self, params, batch):
-        sr = batch[1]
+        realspace = batch.realspace
         energies, apt = self.apply(
             params,
             batch.atomic_numbers,
-            batch.sr,
+            batch.mlip,
+            batch.realspace,
             batch.nopbc,
             batch.pbc,
         )
-        energies *= sr.atom_mask
-        apt *= sr.atom_mask[:, None, None]
+        energies *= realspace.atom_mask
+        apt *= realspace.atom_mask[:, None, None]
 
         return jnp.sum(energies), (energies, apt)
 
     def predict(self, params, batch, stress=False, electric_field=None):
-        sr = batch[1]
+        realspace = batch.realspace
 
         energy_and_derivatives_fn = jax.value_and_grad(
             self.energy, allow_int=True, has_aux=True, argnums=1
@@ -280,51 +295,53 @@ class LoremBEC(nn.Module):
         batch_energy_and_aux, grads = energy_and_derivatives_fn(params, batch)
         _, (energies, apt) = batch_energy_and_aux
 
-        grads = grads.sr
+        grads = grads.realspace
 
         # per-structure energies
         energy = (
-            jax.ops.segment_sum(energies, sr.atom_to_structure, sr.cell.shape[0])
-            * sr.structure_mask
+            jax.ops.segment_sum(
+                energies, realspace.atom_to_structure, realspace.cell.shape[0]
+            )
+            * realspace.structure_mask
         )
 
         # forces from position gradients
         forces = -grads.positions
 
         # acoustic sum rule: redistribute excess charge per-structure
-        num_structures = sr.cell.shape[0]
+        num_structures = realspace.cell.shape[0]
         excess_charge = jax.ops.segment_sum(
-            apt, sr.atom_to_structure, num_structures
+            apt, realspace.atom_to_structure, num_structures
         )  # (structures, 3, 3)
         num_atoms_per_structure = jax.ops.segment_sum(
-            sr.atom_mask.astype(apt.dtype),
-            sr.atom_to_structure,
+            realspace.atom_mask.astype(apt.dtype),
+            realspace.atom_to_structure,
             num_structures,
         )  # (structures,)
         charges_to_redistribute = excess_charge / jnp.maximum(
             num_atoms_per_structure[:, None, None], 1.0
         )  # (structures, 3, 3)
-        apt = apt - charges_to_redistribute[sr.atom_to_structure]
-        apt *= sr.atom_mask[:, None, None]
+        apt = apt - charges_to_redistribute[realspace.atom_to_structure]
+        apt *= realspace.atom_mask[:, None, None]
 
         # optional electric field force at inference time
         if electric_field is not None:
             assert electric_field.shape == (3,), "Electric field must be a 3-vector"
-            E_padded = jnp.broadcast_to(electric_field, (sr.positions.shape[0], 3))
+            E_padded = jnp.broadcast_to(electric_field, (realspace.positions.shape[0], 3))
             F_ext = jnp.einsum("...ij,...j->...i", apt, E_padded)
-            forces = forces + F_ext * sr.atom_mask[:, None]
+            forces = forces + F_ext * realspace.atom_mask[:, None]
 
         results = {"energy": energy, "forces": forces, "apt": apt}
 
         if stress:
             stress_tensor = (
                 jax.ops.segment_sum(
-                    jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
-                    sr.atom_to_structure,
-                    num_segments=sr.cell.shape[0],
+                    jnp.einsum("ia,ib->iab", realspace.positions, grads.positions),
+                    realspace.atom_to_structure,
+                    num_segments=realspace.cell.shape[0],
                 )
-                + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
-            ) * sr.structure_mask[:, None, None]
+                + jnp.einsum("sAa,sAb->sab", realspace.cell, grads.cell)
+            ) * realspace.structure_mask[:, None, None]
             results["stress"] = stress_tensor
 
         return results
