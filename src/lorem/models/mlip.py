@@ -149,26 +149,32 @@ class Lorem(nn.Module):
         )
 
         if self.field_conditioning:
-            # linear dipole coupling with the field: E ~ -mu.F
-            dipole_coupling = jnp.sum(
-                e3x.nn.Dense(1, use_bias=False)(nodes_spherical)[:, 0, 1:4, 0] * E_i,
-                axis=-1,
-                keepdims=True,
-            )
-
-            # quadratic polarizability coupling via CG tensor product + norm;
-            # a side branch, not an overwrite, so nodes_spherical stays geometry-pure
-            polariz_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
+            # single CG product of field (l=1) x nodes_spherical (all degrees at
+            # once) replaces the old hand-picked dipole + polarizability terms;
+            # CG selection rules alone decide which output degrees exist and are
+            # nonzero (mace-field, arXiv:2508.17870), so we don't need to hand-pick
+            # which orders of field response to model -- a side branch, not an
+            # overwrite, so nodes_spherical itself stays geometry-pure
+            field_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
                 e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i)), nodes_spherical
-            )
-            polariz_coupling = (
-                spherical_norm_last_axis(polariz_coupled, max_degree)
-                * l_factors[None, None, :, None]
-            ).reshape(num_atoms, -1)
+            )  # [num_atoms, 1, (max_degree+1)**2, s]
+
+            # l=0 output slot, read directly (no norm) -- odd/"dipole-like" term;
+            # only the l=1(field) x l=1(node) -> l=0 path contributes here, so this
+            # stays sign-sensitive in the field by construction (a norm never could)
+            field_linear = field_coupled[:, 0, 0, :]  # [num_atoms, s]
+
+            # norm of l>=1 output slots -- even/"polarizability-like" term; l=0 is
+            # excluded here since field_linear already reads that path out with
+            # sign; norming it too would double-count it, rectified/sign-destroyed
+            field_norms = spherical_norm_last_axis(field_coupled, max_degree)
+            field_quad = (
+                field_norms[:, :, 1:, :] * l_factors[None, None, 1:, None]
+            ).reshape(num_atoms, -1)  # [num_atoms, max_degree * s]
 
             nodes_scalar = Update(d)(
                 nodes_scalar,
-                jnp.concatenate([dipole_coupling, polariz_coupling], axis=-1),
+                jnp.concatenate([field_linear, field_quad], axis=-1),
                 atom_mask,
             )
 
