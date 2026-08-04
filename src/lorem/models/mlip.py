@@ -12,7 +12,6 @@ from lorem.models.backbone import (
     RadialCoefficients,
     Update,
     degree_wise_repeat_last_axis,
-    field_magnitude,
     spherical_field,
     spherical_norm_last_axis,
 )
@@ -36,7 +35,7 @@ class Lorem(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
-    field_conditioning: str = "none"  # "none" | "l1" | "l1_l0"
+    field_conditioning: bool = False
 
     @property
     def to_batch(self):
@@ -130,8 +129,6 @@ class Lorem(nn.Module):
 
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
         nodes_scalar = ChargeEmbedding(d)(Q_i, nodes_scalar, atom_mask)
-        if self.field_conditioning == "l1_l0":
-            nodes_scalar = ChargeEmbedding(d)(field_magnitude(E_i), nodes_scalar, atom_mask)
 
         coefficients = masked(
             nn.Dense(num_l * s, use_bias=False), edges_scalar, pair_mask
@@ -151,33 +148,27 @@ class Lorem(nn.Module):
             nodes_spherical
         )
 
-        if self.field_conditioning != "none":
-            # dipole-like coupling: E ~ -mu.F, the dominant (odd-in-field)
-            # term for polar molecules. A norm-based readout alone can never
-            # represent this since ||x|| = ||-x|| is structurally even -- so
-            # read out a learned per-atom l=1 "dipole" feature from the
-            # (field-independent) equivariant features and dot it directly
-            # with the raw field.
-            dipole_i = e3x.nn.Dense(1, use_bias=False)(nodes_spherical)[:, 0, 1:4, 0]
-            dipole_coupling = jnp.sum(dipole_i * E_i, axis=-1, keepdims=True)
+        if self.field_conditioning:
+            # linear dipole coupling with the field: E ~ -mu.F
+            dipole_coupling = jnp.sum(
+                e3x.nn.Dense(1, use_bias=False)(nodes_spherical)[:, 0, 1:4, 0] * E_i,
+                axis=-1,
+                keepdims=True,
+            )
 
-            # quadratic/polarizability-like coupling via CG tensor product +
-            # norm readout (even in field). Kept as an additive side branch,
-            # not an overwrite of nodes_spherical, so downstream equivariant
-            # features (message passing, LR multipoles, forces) stay
-            # geometry-pure.
-            field_spherical = e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i))
-            field_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
-                field_spherical, nodes_spherical
+            # quadratic polarizability coupling via CG tensor product + norm;
+            # a side branch, not an overwrite, so nodes_spherical stays geometry-pure
+            polariz_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
+                e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i)), nodes_spherical
             )
-            field_norms = spherical_norm_last_axis(field_coupled, max_degree)
-            field_norms = (field_norms * l_factors[None, None, :, None]).reshape(
-                num_atoms, -1
-            )
+            polariz_coupling = (
+                spherical_norm_last_axis(polariz_coupled, max_degree)
+                * l_factors[None, None, :, None]
+            ).reshape(num_atoms, -1)
 
             nodes_scalar = Update(d)(
                 nodes_scalar,
-                jnp.concatenate([dipole_coupling, field_norms], axis=-1),
+                jnp.concatenate([dipole_coupling, polariz_coupling], axis=-1),
                 atom_mask,
             )
 

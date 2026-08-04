@@ -126,7 +126,9 @@ class Calculator(BaseCalculator):
         old_field = np.asarray(
             self.atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=float
         )
-        new_field = np.asarray(atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=float)
+        new_field = np.asarray(
+            atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=float
+        )
         return old_q == new_q and np.array_equal(old_field, new_field)
 
     def _update_conditioning(self, atoms):

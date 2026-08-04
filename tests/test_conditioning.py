@@ -8,7 +8,7 @@ from ase.calculators.singlepoint import SinglePointCalculator
 
 from lorem.batching import to_batch, to_sample
 from lorem.calculator import Calculator
-from lorem.models.backbone import ChargeEmbedding, field_magnitude, spherical_field
+from lorem.models.backbone import ChargeEmbedding, spherical_field
 from lorem.models.bec import LoremBEC
 from lorem.models.mlip import Lorem
 
@@ -156,7 +156,7 @@ def test_charge_embedding_changes_with_Q():
     assert not jnp.allclose(y, y_zero_Q)
 
 
-# -- spherical_field / field_magnitude --
+# -- spherical_field --
 
 
 def test_spherical_field_l0_is_always_zero():
@@ -173,17 +173,10 @@ def test_spherical_field_l1_block_is_cartesian_order():
     assert np.allclose(l1, np.eye(3), atol=1e-5)
 
 
-def test_field_magnitude():
-    E_i = jnp.array([[3.0, 4.0, 0.0], [0.0, 0.0, 0.0]])
-    mag = field_magnitude(E_i)
-    assert np.allclose(mag, [5.0, 0.0], atol=1e-4)
-    assert np.all(np.isfinite(mag))
-
-
 # -- end-to-end: Lorem/LoremBEC on hand-built water molecules --
 
 
-def _make_model(field_conditioning="none", lr=False):
+def _make_model(field_conditioning=False, lr=False):
     return Lorem(
         cutoff=6.0,
         num_features=8,
@@ -257,8 +250,8 @@ def test_water_smoke():
 # -- mode-switch sanity: Lorem field conditioning --
 
 
-def test_field_conditioning_none_ignores_field():
-    model = _make_model(field_conditioning="none")
+def test_field_conditioning_off_ignores_field():
+    model = _make_model(field_conditioning=False)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -276,29 +269,8 @@ def test_field_conditioning_none_ignores_field():
     assert np.allclose(calc_zero.results["energy"], calc_field.results["energy"], atol=1e-6)
 
 
-def test_field_conditioning_l1_changes_with_field():
-    model = _make_model(field_conditioning="l1")
-
-    atoms = molecule("H2O")
-    atoms.info["total_charge"] = 0.0
-
-    atoms_zero = atoms.copy()
-    atoms_zero.info["external_field"] = [0.0, 0.0, 0.0]
-    calc_zero = Calculator.from_model(model)
-    calc_zero.calculate(atoms_zero)
-
-    atoms_field = atoms.copy()
-    atoms_field.info["external_field"] = [0.3, -0.2, 0.5]
-    calc_field = Calculator.from_model(model)
-    calc_field.calculate(atoms_field)
-
-    assert not np.allclose(
-        calc_zero.results["energy"], calc_field.results["energy"], atol=1e-6
-    )
-
-
-def test_field_conditioning_l1_l0_changes_with_field():
-    model = _make_model(field_conditioning="l1_l0")
+def test_field_conditioning_changes_with_field():
+    model = _make_model(field_conditioning=True)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -319,8 +291,8 @@ def test_field_conditioning_l1_l0_changes_with_field():
 
 
 def test_field_conditioning_finite_at_zero_field():
-    for mode in ("none", "l1", "l1_l0"):
-        model = _make_model(field_conditioning=mode)
+    for field_conditioning in (False, True):
+        model = _make_model(field_conditioning=field_conditioning)
         calc = Calculator.from_model(model)
         atoms = molecule("H2O")
         atoms.info["total_charge"] = 0.0
@@ -333,29 +305,9 @@ def test_field_conditioning_finite_at_zero_field():
 # -- rotation equivariance (the important one) --
 
 
-def test_field_conditioning_l1_is_rotation_equivariant():
+def test_field_conditioning_is_rotation_equivariant():
     R = np.array(e3x.so3.random_rotation(jax.random.key(0)))
-    model = _make_model(field_conditioning="l1")
-
-    atoms = molecule("H2O")
-    atoms.info["total_charge"] = 0.0
-    atoms.info["external_field"] = [0.3, -0.2, 0.5]
-    calc = Calculator.from_model(model)
-    calc.calculate(atoms)
-
-    atoms_rot = atoms.copy()
-    atoms_rot.positions = atoms.positions @ R.T
-    atoms_rot.info["external_field"] = np.array(atoms.info["external_field"]) @ R.T
-    calc_rot = Calculator.from_model(model)
-    calc_rot.calculate(atoms_rot)
-
-    assert np.allclose(calc.results["energy"], calc_rot.results["energy"], atol=1e-4)
-    assert np.allclose(calc.results["forces"] @ R.T, calc_rot.results["forces"], atol=1e-4)
-
-
-def test_field_conditioning_l1_l0_is_rotation_equivariant():
-    R = np.array(e3x.so3.random_rotation(jax.random.key(0)))
-    model = _make_model(field_conditioning="l1_l0")
+    model = _make_model(field_conditioning=True)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -377,27 +329,8 @@ def test_field_conditioning_l1_l0_is_rotation_equivariant():
 # accidentally-invariant-only coupling, e.g. one that only picks up |E|) --
 
 
-def test_field_conditioning_l1_direction_sensitive():
-    model = _make_model(field_conditioning="l1")
-
-    atoms = molecule("H2O")
-    atoms.info["total_charge"] = 0.0
-
-    atoms_a = atoms.copy()
-    atoms_a.info["external_field"] = [0.4, 0.0, 0.0]
-    calc_a = Calculator.from_model(model)
-    calc_a.calculate(atoms_a)
-
-    atoms_b = atoms.copy()
-    atoms_b.info["external_field"] = [0.0, 0.4, 0.0]
-    calc_b = Calculator.from_model(model)
-    calc_b.calculate(atoms_b)
-
-    assert not np.allclose(calc_a.results["energy"], calc_b.results["energy"], atol=1e-6)
-
-
-def test_field_conditioning_l1_l0_direction_sensitive():
-    model = _make_model(field_conditioning="l1_l0")
+def test_field_conditioning_direction_sensitive():
+    model = _make_model(field_conditioning=True)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -420,29 +353,8 @@ def test_field_conditioning_l1_l0_direction_sensitive():
 # dipole-field term E ~ -mu.F; these catch a regression back to that state) --
 
 
-def test_field_conditioning_l1_not_symmetric_under_field_reversal():
-    model = _make_model(field_conditioning="l1")
-
-    atoms = molecule("H2O")
-    atoms.info["total_charge"] = 0.0
-
-    atoms_pos = atoms.copy()
-    atoms_pos.info["external_field"] = [0.3, -0.2, 0.5]
-    calc_pos = Calculator.from_model(model)
-    calc_pos.calculate(atoms_pos)
-
-    atoms_neg = atoms.copy()
-    atoms_neg.info["external_field"] = [-0.3, 0.2, -0.5]
-    calc_neg = Calculator.from_model(model)
-    calc_neg.calculate(atoms_neg)
-
-    assert not np.allclose(
-        calc_pos.results["energy"], calc_neg.results["energy"], atol=1e-6
-    )
-
-
-def test_field_conditioning_l1_l0_not_symmetric_under_field_reversal():
-    model = _make_model(field_conditioning="l1_l0")
+def test_field_conditioning_not_symmetric_under_field_reversal():
+    model = _make_model(field_conditioning=True)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -465,8 +377,8 @@ def test_field_conditioning_l1_l0_not_symmetric_under_field_reversal():
 # -- lr on/off cross-check --
 
 
-def test_field_conditioning_l1_with_lr_finite_and_direction_sensitive():
-    model = _make_model(field_conditioning="l1", lr=True)
+def test_field_conditioning_with_lr_finite_and_direction_sensitive():
+    model = _make_model(field_conditioning=True, lr=True)
 
     atoms = molecule("H2O")
     atoms.info["total_charge"] = 0.0
@@ -493,7 +405,7 @@ def test_field_conditioning_l1_with_lr_finite_and_direction_sensitive():
 
 
 def test_calculator_picks_up_external_field_change_at_fixed_geometry():
-    model = _make_model(field_conditioning="l1")
+    model = _make_model(field_conditioning=True)
     key = jax.random.key(0)
     params = model.init(key, *model.dummy_inputs())
 
