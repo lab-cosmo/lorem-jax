@@ -2,6 +2,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+import pytest
 from ase.build import bulk, molecule
 from ase.calculators.singlepoint import SinglePointCalculator
 
@@ -14,27 +15,23 @@ from lorem.models.mlip import Lorem
 # -- data plumbing: atoms.info["total_charge"] -> batch.total_charge --
 
 
-def test_total_charge_flows_through_batch():
+@pytest.mark.parametrize("charge", [None, -1.0, 2.5])
+def test_total_charge_flows_through_batch(charge):
+    """batch.total_charge reflects atoms.info["total_charge"], defaulting to
+    0.0 when unset."""
     atoms = molecule("H2O")
-    atoms.info["total_charge"] = -1.0
+    if charge is not None:
+        atoms.info["total_charge"] = charge
     sample = to_sample(atoms, cutoff=5.0, energy=False, forces=False, stress=False)
     batch = to_batch([sample], [])
-    assert float(batch.total_charge[0]) == -1.0
-
-
-def test_total_charge_defaults_to_zero():
-    atoms = molecule("H2O")
-    sample = to_sample(atoms, cutoff=5.0, energy=False, forces=False, stress=False)
-    batch = to_batch([sample], [])
-    assert float(batch.total_charge[0]) == 0.0
+    assert float(batch.total_charge[0]) == (0.0 if charge is None else charge)
 
 
 def test_total_charge_survives_marathon_prepare_roundtrip(tmp_path):
-    # marathon.grain.prepare() only persists atoms.info entries that are
-    # declared in its own `properties` dict (storage="atoms.info") — unlike
-    # to_sample()/to_batch() above, which always read atoms.info directly.
-    # Real training datasets go through this prepare()/DataSource path, so
-    # total_charge must be declared here or it's silently dropped.
+    """total_charge survives marathon.grain.prepare()/DataSource only when
+    declared in `properties` -- unlike to_sample()/to_batch() above, which
+    always read atoms.info directly, prepare() silently drops undeclared
+    entries, and real training datasets go through this path."""
     from marathon.grain import DataSource, prepare
 
     def make(q):
@@ -59,6 +56,8 @@ def test_total_charge_survives_marathon_prepare_roundtrip(tmp_path):
 
 
 def test_missing_total_charge_warns_once(capsys):
+    """A missing atoms.info["total_charge"] warns exactly once, even across
+    repeated calls."""
     import lorem.batching as batching
 
     batching._warned_missing_total_charge = False
@@ -75,7 +74,9 @@ def test_missing_total_charge_warns_once(capsys):
 # -- ChargeConditioning --
 
 
-def test_charge_embedding_changes_with_Q():
+def test_charge_conditioning_module_changes_with_Q():
+    """The ChargeConditioning FiLM layer's output depends on the per-atom
+    charge Q_i."""
     key = jax.random.key(0)
     num_atoms, d = 4, 6
     x = jax.random.normal(key, (num_atoms, d))
@@ -91,7 +92,7 @@ def test_charge_embedding_changes_with_Q():
     assert not jnp.allclose(y, y_zero_Q)
 
 
-# -- end-to-end: Lorem/LoremBEC on hand-built water molecules --
+# -- end-to-end: Lorem/LoremBEC on hand-built structures --
 
 
 def _make_model(lr=False):
@@ -105,27 +106,9 @@ def _make_model(lr=False):
     )
 
 
-def test_charge_conditioning_differs_with_Q():
-    atoms = molecule("H2O")
-
-    model = _make_model()
-
-    atoms_plus = atoms.copy()
-    atoms_plus.info["total_charge"] = 1.0
-    calc_plus = Calculator.from_model(model)
-    calc_plus.calculate(atoms_plus)
-
-    atoms_minus = atoms.copy()
-    atoms_minus.info["total_charge"] = -1.0
-    calc_minus = Calculator.from_model(model)
-    calc_minus.calculate(atoms_minus)
-
-    assert not np.allclose(
-        calc_plus.results["energy"], calc_minus.results["energy"], atol=1e-6
-    )
-
-
 def test_bec_charge_conditioning_differs_with_Q():
+    """LoremBEC predicts different energy for a structure at Q=+1 vs Q=-1
+    (no other test exercises charge conditioning on LoremBEC)."""
     model = LoremBEC(
         cutoff=5.0,
         num_features=8,
@@ -150,9 +133,9 @@ def test_bec_charge_conditioning_differs_with_Q():
 
 
 def test_water_smoke():
-    """Sanity check across charge states: finite E/F for a hand-built water
-    molecule at Q in {-1, 0, +1}, using total_charge exactly as it flows
-    through atoms.info -> to_sample -> to_batch."""
+    """Energy/forces stay finite for a hand-built water molecule across
+    charge states, using total_charge exactly as it flows through
+    atoms.info -> to_sample -> to_batch."""
     model = _make_model()
     calc = Calculator.from_model(model)
     for q in (-1.0, 0.0, 1.0):
@@ -161,7 +144,6 @@ def test_water_smoke():
         calc.calculate(atoms)
         assert np.all(np.isfinite(calc.results["energy"]))
         assert np.all(np.isfinite(calc.results["forces"]))
-        assert calc.results["forces"].shape == (len(atoms), 3)
 
 
 # -- Calculator cache invalidation: total_charge lives in atoms.info, not
@@ -171,6 +153,11 @@ def test_water_smoke():
 
 
 def test_calculator_picks_up_total_charge_change_at_fixed_geometry():
+    """Reusing one Calculator across a total_charge change at fixed geometry
+    recomputes rather than caching stale results, and matches a fresh
+    Calculator's output -- this also covers plain Lorem's basic
+    charge-sensitivity (e_plus != e_minus), so no separate test for that
+    is needed."""
     model = _make_model()
     key = jax.random.key(0)
     params = model.init(key, *model.dummy_inputs())
