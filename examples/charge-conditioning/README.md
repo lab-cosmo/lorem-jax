@@ -3,7 +3,7 @@
 Trains `Lorem` on a small mixed-charge-state dataset, to check that
 conditioning the model on the total charge `Q` of a structure actually helps
 it tell charge states apart. `Lorem`/`LoremBEC` always condition on `Q` via
-FiLM (see `backbone.py`'s `ChargeEmbedding`) — there's no config knob to turn this
+FiLM (see `backbone.py`'s `ChargeConditioning`) — there's no config knob to turn this
 off, since a missing/zero `Q` is harmless (the FiLM layer is a near-identity
 transform at `Q=0`).
 

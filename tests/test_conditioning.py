@@ -7,7 +7,7 @@ from ase.calculators.singlepoint import SinglePointCalculator
 
 from lorem.batching import to_batch, to_sample
 from lorem.calculator import Calculator
-from lorem.models.backbone import ChargeEmbedding
+from lorem.models.backbone import ChargeConditioning
 from lorem.models.bec import LoremBEC
 from lorem.models.mlip import Lorem
 
@@ -72,7 +72,7 @@ def test_missing_total_charge_warns_once(capsys):
     assert out.count("not set; assuming") == 1
 
 
-# -- ChargeEmbedding --
+# -- ChargeConditioning --
 
 
 def test_charge_embedding_changes_with_Q():
@@ -82,7 +82,7 @@ def test_charge_embedding_changes_with_Q():
     atom_mask = jnp.ones(num_atoms, dtype=bool)
     Q_i = jnp.array([1.0, 1.0, -1.0, -1.0])
 
-    model = ChargeEmbedding(features=d)
+    model = ChargeConditioning(features=d)
     params = model.init(key, Q_i, x, atom_mask)
     y = model.apply(params, Q_i, x, atom_mask)
     y_zero_Q = model.apply(params, jnp.zeros(num_atoms), x, atom_mask)

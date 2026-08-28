@@ -223,7 +223,7 @@ def spherical_norm_last_axis(X, max_degree):
 # -- charge conditioning --
 
 
-class ChargeEmbedding(nn.Module):
+class ChargeConditioning(nn.Module):
     # FiLM conditioning of invariant node features on the per-atom charge Q_i
     features: int
 
