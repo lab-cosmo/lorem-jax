@@ -1019,7 +1019,10 @@ def main():
     if use_wandb:
         wandb_dir = Path("wandb")
         if wandb_dir.is_dir():
-            shutil.rmtree(wandb_dir)
+            try:
+                shutil.rmtree(wandb_dir)
+            except OSError as exc:
+                comms.warn(f"could not remove {wandb_dir}: {exc}")
 
     for f, items in get_all(workdir, state):
         if f.suffix == ".backup":
