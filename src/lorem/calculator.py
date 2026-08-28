@@ -108,9 +108,9 @@ class Calculator(BaseCalculator):
             self.atoms = atoms.copy()
             self._update_geometry(atoms)
         elif not self._conditioning_unchanged(atoms):
-            # Geometry unchanged, but total_charge/external_field changed --
-            # these live in atoms.info, not positions/cell, so the neighbor
-            # list cache and _geometry_unchanged() above never see them.
+            # Geometry unchanged, but total_charge changed -- it lives in
+            # atoms.info, not positions/cell, so the neighbor list cache
+            # and _geometry_unchanged() above never see it.
             self.results = {}
             self.atoms = atoms.copy()
             self._update_conditioning(atoms)
@@ -123,23 +123,12 @@ class Calculator(BaseCalculator):
     def _conditioning_unchanged(self, atoms):
         old_q = self.atoms.info.get("total_charge", 0.0)
         new_q = atoms.info.get("total_charge", 0.0)
-        old_field = np.asarray(
-            self.atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=float
-        )
-        new_field = np.asarray(
-            atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=float
-        )
-        return old_q == new_q and np.array_equal(old_field, new_field)
+        return old_q == new_q
 
     def _update_conditioning(self, atoms):
         total_charge = np.array(self.batch.total_charge)
-        external_field = np.array(self.batch.external_field)
         total_charge[0] = atoms.info.get("total_charge", 0.0)
-        external_field[0] = atoms.info.get("external_field", [0.0, 0.0, 0.0])
-        self.batch = self.batch._replace(
-            total_charge=jnp.array(total_charge),
-            external_field=jnp.array(external_field),
-        )
+        self.batch = self.batch._replace(total_charge=jnp.array(total_charge))
 
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample

@@ -8,9 +8,9 @@ behaves like any other ASE calculator.
 ## Files
 
 - `example.py` -- loads a checkpoint, attaches it to an `ase.Atoms` object,
-  and calls `get_potential_energy()`/`get_forces()`. Also demonstrates
-  conditioning inputs (`total_charge`, `external_field`) via `atoms.info`,
-  including reusing one `Calculator` across a field sweep at fixed geometry.
+  and calls `get_potential_energy()`/`get_forces()`. Also demonstrates the
+  `total_charge` conditioning input via `atoms.info`, including reusing one
+  `Calculator` across a charge sweep at fixed geometry.
 
 ## Running
 
@@ -45,12 +45,11 @@ structures through `model.to_sample`/`model.to_batch` directly (see the
 `evaluate.py` scripts under `../../../lorem-q-work/experiments/*/` for the
 pattern: sort by atom count, batch, run `model.predict` per batch).
 
-## Conditioning inputs and calculator caching
+## Conditioning input and calculator caching
 
-`total_charge` and `external_field` are read from `atoms.info`, default to
-zero if unset, and -- unlike positions/cell -- aren't tracked by the
-neighbor-list cache. `Calculator.update()` checks for changes to them
-independently, so reusing one `Calculator` instance across a sweep of
-`atoms.info["external_field"]` at fixed geometry (e.g. a field-magnitude
-sweep) picks up each change correctly rather than silently reusing the
-first field it saw.
+`total_charge` is read from `atoms.info`, defaults to zero if unset, and --
+unlike positions/cell -- isn't tracked by the neighbor-list cache.
+`Calculator.update()` checks for changes to it independently, so reusing
+one `Calculator` instance across a sweep of `atoms.info["total_charge"]` at
+fixed geometry picks up each change correctly rather than silently reusing
+the first value it saw.

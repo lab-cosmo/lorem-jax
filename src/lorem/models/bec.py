@@ -264,9 +264,7 @@ class LoremBEC(nn.Module):
         atoms = bulk("Ar") * [2, 2, 2]
         atoms.info["total_charge"] = 0.0
 
-        # Batch always carries external_field (Lorem needs it), but
-        # LoremBEC.__call__ doesn't take it -- drop it along with labels.
-        return self.atoms_to_batch(atoms)[:-2]
+        return self.atoms_to_batch(atoms)[:-1]
 
     def energy(self, params, batch):
         sr = batch[1]

@@ -30,21 +30,20 @@ atoms.calc = calc
 print(f"energy: {atoms.get_potential_energy():.6f} eV")
 print(f"forces:\n{atoms.get_forces()}")
 
-# -- conditioning inputs (total_charge, external_field) --
+# -- conditioning input (total_charge) --
 #
-# These come from atoms.info, exactly like they do during training, and
-# default to zero if not set. Setting them BEFORE the first calculate()
+# This comes from atoms.info, exactly like it does during training, and
+# defaults to zero if not set. Setting it BEFORE the first calculate()
 # call on a given atoms object works as expected:
 atoms.info["total_charge"] = -1.0
-atoms.info["external_field"] = [0.1, 0.0, 0.0]
-print(f"\ncharged + field energy: {atoms.get_potential_energy():.6f} eV")
+print(f"\ncharged energy: {atoms.get_potential_energy():.6f} eV")
 
 # Gotcha: if you REUSE the same Calculator on the same atoms object and only
-# change atoms.info (e.g. sweeping external_field at fixed geometry), the
+# change atoms.info (e.g. sweeping total_charge at fixed geometry), the
 # Calculator correctly detects that too -- it doesn't just cache the first
-# total_charge/external_field it ever saw. This works because Calculator.update()
-# checks atoms.info in addition to positions/cell, not despite reusing the
-# same instance:
-for field_x in (-0.2, -0.1, 0.0, 0.1, 0.2):
-    atoms.info["external_field"] = [field_x, 0.0, 0.0]
-    print(f"  field_x={field_x:+.1f}: E={atoms.get_potential_energy():.6f} eV")
+# total_charge it ever saw. This works because Calculator.update() checks
+# atoms.info in addition to positions/cell, not despite reusing the same
+# instance:
+for q in (-1.0, -0.5, 0.0, 0.5, 1.0):
+    atoms.info["total_charge"] = q
+    print(f"  total_charge={q:+.1f}: E={atoms.get_potential_energy():.6f} eV")

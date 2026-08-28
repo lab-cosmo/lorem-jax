@@ -12,7 +12,6 @@ from lorem.models.backbone import (
     RadialCoefficients,
     Update,
     degree_wise_repeat_last_axis,
-    spherical_field,
     spherical_norm_last_axis,
 )
 from lorem.models.backbone import (
@@ -35,7 +34,6 @@ class Lorem(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
-    field_conditioning: bool = False
 
     @property
     def to_batch(self):
@@ -53,7 +51,6 @@ class Lorem(nn.Module):
         nopbc,
         pbc,
         Q,
-        field,
     ):
         R = sr.positions
         i = sr.centers
@@ -80,7 +77,6 @@ class Lorem(nn.Module):
         s = self.num_spherical_features
 
         Q_i = Q[atom_to_structure] * atom_mask
-        E_i = field[atom_to_structure] * atom_mask[..., None]
 
         # empirical factors to make var of equivariant norm more uniform across l
         l_factors = (
@@ -147,36 +143,6 @@ class Lorem(nn.Module):
         nodes_spherical = e3x.nn.TensorDense(use_bias=False, include_pseudotensors=False)(
             nodes_spherical
         )
-
-        if self.field_conditioning:
-            # single CG product of field (l=1) x nodes_spherical (all degrees at
-            # once) replaces the old hand-picked dipole + polarizability terms;
-            # CG selection rules alone decide which output degrees exist and are
-            # nonzero (mace-field, arXiv:2508.17870), so we don't need to hand-pick
-            # which orders of field response to model -- a side branch, not an
-            # overwrite, so nodes_spherical itself stays geometry-pure
-            field_coupled = e3x.nn.Tensor(include_pseudotensors=False)(
-                e3x.nn.Dense(s, use_bias=False)(spherical_field(E_i)), nodes_spherical
-            )  # [num_atoms, 1, (max_degree+1)**2, s]
-
-            # l=0 output slot, read directly (no norm) -- odd/"dipole-like" term;
-            # only the l=1(field) x l=1(node) -> l=0 path contributes here, so this
-            # stays sign-sensitive in the field by construction (a norm never could)
-            field_linear = field_coupled[:, 0, 0, :]  # [num_atoms, s]
-
-            # norm of l>=1 output slots -- even/"polarizability-like" term; l=0 is
-            # excluded here since field_linear already reads that path out with
-            # sign; norming it too would double-count it, rectified/sign-destroyed
-            field_norms = spherical_norm_last_axis(field_coupled, max_degree)
-            field_quad = (
-                field_norms[:, :, 1:, :] * l_factors[None, None, 1:, None]
-            ).reshape(num_atoms, -1)  # [num_atoms, max_degree * s]
-
-            nodes_scalar = Update(d)(
-                nodes_scalar,
-                jnp.concatenate([field_linear, field_quad], axis=-1),
-                atom_mask,
-            )
 
         # -- mix equivariant information into scalar node features --
         norms = spherical_norm_last_axis(nodes_spherical, max_degree)
@@ -293,7 +259,6 @@ class Lorem(nn.Module):
 
         atoms = bulk("Ar") * [2, 2, 2]
         atoms.info["total_charge"] = 0.0
-        atoms.info["external_field"] = [0.0, 0.0, 0.0]
 
         return self.atoms_to_batch(atoms)[:-1]
 
@@ -306,7 +271,6 @@ class Lorem(nn.Module):
             batch.nopbc,
             batch.pbc,
             batch.total_charge,
-            batch.external_field,
         )
         energies *= sr.atom_mask
 

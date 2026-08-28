@@ -11,7 +11,6 @@ from marathon.data.sample import to_labels
 from marathon.utils import next_size
 
 _warned_missing_total_charge = False
-_warned_missing_external_field = False
 
 Batch = namedtuple(
     "Batch",
@@ -21,7 +20,6 @@ Batch = namedtuple(
         "nopbc",
         "pbc",
         "total_charge",
-        "external_field",
         "labels",
     ),
 )
@@ -94,14 +92,9 @@ def to_batch(
     for idx, sample in enumerate(samples):
         total_charge[idx] = sample.structure["total_charge"]
 
-    # external_field, same story as total_charge -- always populated
-    external_field = np.zeros((num_structures, 3), dtype=sr.cell.dtype)
-    for idx, sample in enumerate(samples):
-        external_field[idx] = sample.structure["external_field"]
-
     labels = batch_labels(labels, num_structures, num_atoms, keys, properties=properties)
 
-    return Batch(atomic_numbers, sr, nopbc, pbc, total_charge, external_field, labels)
+    return Batch(atomic_numbers, sr, nopbc, pbc, total_charge, labels)
 
 
 def to_sample(
@@ -129,18 +122,6 @@ def to_sample(
             )
             _warned_missing_total_charge = True
     structure["total_charge"] = np.float32(atoms.info.get("total_charge", 0.0))
-
-    if "external_field" not in atoms.info:
-        global _warned_missing_external_field
-        if not _warned_missing_external_field:
-            comms.warn(
-                "atoms.info['external_field'] not set; assuming external_field=[0,0,0] "
-                "for this and all further structures missing it"
-            )
-            _warned_missing_external_field = True
-    structure["external_field"] = np.asarray(
-        atoms.info.get("external_field", [0.0, 0.0, 0.0]), dtype=np.float32
-    )
 
     labels = to_labels(
         atoms,
