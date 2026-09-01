@@ -360,13 +360,13 @@ class PerParticleTensorPredictor(nn.Module):
         x = e3x.nn.activations.silu(x)
 
         x = e3x.nn.Dense(features=self.features)(
-            spherical_features
+            x
         )  # -> [...,1 or 2,(l+1)**2,sp_features]
 
         x = e3x.nn.activations.silu(x)
 
         x = e3x.nn.Dense(features=self.features)(
-            spherical_features
+            x
         )  # -> [...,1 or 2,(l+1)**2,sp_features]
 
         # coupling and weighting
