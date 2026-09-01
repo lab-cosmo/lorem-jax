@@ -39,6 +39,8 @@ addopts = [
 filterwarnings = [
     "error",
     "ignore:jax.core.get_opaque_trace_state is deprecated.:DeprecationWarning",
+    # ase assigns to ndarray.shape, deprecated in numpy 2.5
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning:ase.atoms",
 ]
 
 [tool.ruff]
