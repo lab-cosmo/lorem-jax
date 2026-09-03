@@ -19,6 +19,9 @@ from lorem.models.backbone import (
 )
 from lorem.transforms import ToBatch, ToSample
 
+# vacuum permittivity in e^2 / (eV * Angstrom)
+EPSILON_0 = 0.005526349406
+
 
 class Lorem(nn.Module):
     cutoff: float = 5.0
@@ -276,35 +279,143 @@ class Lorem(nn.Module):
 
         return jnp.sum(energies), energies
 
-    def predict(self, params, batch, stress=False):
+    def _energy_and_grads(self, params, batch):
+        """One value_and_grad of the energy w.r.t. the whole batch.
+
+        Split out so `LoremQ` can read dE/dq off the same gradient pytree that
+        already carries the forces, rather than paying for a second backward
+        pass to get it.
+        """
         sr = batch[1]
 
         energy_and_derivatives_fn = jax.value_and_grad(
             self.energy, allow_int=True, has_aux=True, argnums=1
         )
-        batch_energy_and_atom_energies, grads = energy_and_derivatives_fn(params, batch)
+        batch_energy_and_atom_energies, batch_grads = energy_and_derivatives_fn(
+            params, batch
+        )
         _, energies = batch_energy_and_atom_energies
-
-        grads = grads.sr
 
         energy = (
             jax.ops.segment_sum(energies, sr.atom_to_structure, sr.cell.shape[0])
             * sr.structure_mask
         )
+        forces = -batch_grads.sr.positions
 
-        forces = -grads.positions
+        return energy, forces, batch_grads
+
+    def _stress(self, sr, grads):
+        return (
+            jax.ops.segment_sum(
+                jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
+                sr.atom_to_structure,
+                num_segments=sr.cell.shape[0],
+            )
+            + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
+        ) * sr.structure_mask[:, None, None]
+
+    def predict(self, params, batch, stress=False):
+        """Energy, forces and optionally stress -- the plain MLIP contract.
+
+        Charge derivatives live on `LoremQ`. They are meaningless here: this
+        class applies `ChargeConditioning` unconditionally and `total_charge`
+        defaults to 0, so a model trained where q never varied would otherwise
+        report an unconstrained dE/dq alongside energy and forces, with the
+        same apparent standing.
+        """
+        sr = batch[1]
+        energy, forces, batch_grads = self._energy_and_grads(params, batch)
 
         results = {"energy": energy, "forces": forces}
 
         if stress:
-            stress = (
-                jax.ops.segment_sum(
-                    jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
-                    sr.atom_to_structure,
-                    num_segments=sr.cell.shape[0],
+            results["stress"] = self._stress(sr, batch_grads.sr)
+
+        return results
+
+
+class LoremQ(Lorem):
+    """`Lorem` for systems where the total charge is a real, varied input.
+
+    Identical architecture -- it inherits `__call__` untouched, so a `LoremQ`
+    checkpoint is weight-compatible with a `Lorem` one. The only difference is
+    what `predict` exposes: the derivatives with respect to `total_charge`,
+    which are only meaningful when q actually varied during training.
+
+    - `work_function` = dE/dq. Free: it falls out of the same backward pass as
+      the forces.
+    - `bec_z` = -(A eps0) d2E/(dr dq), the Born effective charge. Costs a
+      forward-over-reverse pass, so it stays behind `predict_bec`.
+    """
+
+    # off by default: unlike the work function this is not free, so only runs
+    # that actually supervise it should pay for it
+    predict_bec: bool = False
+
+    def _bec_z(self, params, batch):
+        """Born effective charges, as the mixed second derivative.
+
+        The charge sets a surface charge density q/A, hence a field q/(A eps0)
+        along the slab normal, and an atom with Born effective charge Z* feels
+        F = Z* q/(A eps0). So the dimensionless Z* the datasets carry is
+
+            Z* = (A eps0) dF/dq = -(A eps0) d2E/(dr dq)
+
+        Verified against razor's 3-point stencil: a finite-difference dF/dq
+        regressed on the `bec_z` label gives slope 1/(A eps0) = 2.19839 for
+        A = 82.3108 A^2, intercept ~1e-11, correlation 1.00000.
+
+        Structures in a batch don't interact, so a tangent of ones on the
+        per-structure charge vector hands each atom its own structure's
+        derivative -- the same argument that makes the work function a single
+        backward pass. This one costs a forward-over-reverse pass on top.
+        """
+        sr = batch[1]
+
+        def dE_dpositions(total_charge):
+            def energy_of_positions(positions):
+                shifted = batch._replace(
+                    sr=sr._replace(positions=positions),
+                    total_charge=total_charge,
                 )
-                + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
-            ) * sr.structure_mask[:, None, None]
-            results["stress"] = stress
+                return self.energy(params, shifted)[0]
+
+            return jax.grad(energy_of_positions)(sr.positions)
+
+        _, d2E_drdq = jax.jvp(
+            dE_dpositions,
+            (batch.total_charge,),
+            (jnp.ones_like(batch.total_charge),),
+        )
+
+        # in-plane cell area; the out-of-plane vector varies per structure and
+        # must not enter (pbc = T T F)
+        area = jnp.linalg.norm(
+            jnp.cross(sr.cell[:, 0, :], sr.cell[:, 1, :]), axis=-1
+        )
+        scale = (area * EPSILON_0)[sr.atom_to_structure][:, None]
+
+        return -d2E_drdq * scale * sr.atom_mask[:, None]
+
+    def predict(self, params, batch, stress=False):
+        sr = batch[1]
+        energy, forces, batch_grads = self._energy_and_grads(params, batch)
+
+        # dE/dq. `energy` sums over structures that do not interact, so the
+        # derivative w.r.t. the per-structure total_charge vector is already
+        # each structure's own value. The per-species baseline is
+        # charge-independent and drops out, so no offset correction applies
+        # here (unlike for the energy itself).
+        results = {
+            "energy": energy,
+            "forces": forces,
+            "work_function": batch_grads.total_charge * sr.structure_mask,
+        }
+
+        if self.predict_bec:
+            results["bec_z"] = self._bec_z(params, batch)
+
+        if stress:
+            results["stress"] = self._stress(sr, batch_grads.sr)
 
         return results

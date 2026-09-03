@@ -1,4 +1,4 @@
 from .bec import LoremBEC
-from .mlip import Lorem
+from .mlip import Lorem, LoremQ
 
-__all__ = ["Lorem", "LoremBEC"]
+__all__ = ["Lorem", "LoremQ", "LoremBEC"]
