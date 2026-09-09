@@ -11,10 +11,10 @@ transform at `Q=0`).
 
 `data.xyz` is a cropped slice (60 structures, stratified across the two
 charge states) of the Ag₃⁺/Ag₃⁻ dataset from Ko, Finkler, Goedecker &
-Behler, *Nat. Commun.* **12**, 398 (2021) — see
-`~/projects/lorem-q/Ag_clusters/README.md` for the full dataset and
-provenance. Every Ag₃ trimer here is small enough that the whole cluster
-sits inside any reasonable cutoff, so a purely local model has no
+Behler, *Nat. Commun.* **12**, 398 (2021),
+<https://doi.org/10.1038/s41467-020-20427-2>, whose supplementary data
+carries the full set. Every Ag₃ trimer here is small enough that the whole
+cluster sits inside any reasonable cutoff, so a purely local model has no
 structural excuse for failing to distinguish the two charge states — this
 isolates the value of Q-conditioning itself, independent of any
 long-range/beyond-cutoff effects. That's also why `lr: false` in

@@ -104,11 +104,7 @@ class Calculator(BaseCalculator):
             self.setup(atoms)
             return
 
-        # Geometry and total_charge change independently: a step can stay
-        # inside the skin budget *and* change the charge, and total_charge
-        # lives in atoms.info, where neither the neighbor list cache nor
-        # _geometry_unchanged() can see it. Separate flags rather than an
-        # if/elif chain, so a simultaneous change is not dropped.
+        # Geometry and total_charge may change independently
         stale = self.atoms is None
         moved = stale or not self._geometry_unchanged(atoms)
         recharged = stale or not self._conditioning_unchanged(atoms)

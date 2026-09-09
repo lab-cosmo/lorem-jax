@@ -4,13 +4,10 @@ from collections import namedtuple
 
 from jaxpme.batched_mixed.batching import get_batch as jaxpme_batcher
 from jaxpme.batched_mixed.batching import prepare as jaxpme_prepare
-from marathon import comms
 from marathon.data.batching import batch_labels
 from marathon.data.properties import DEFAULT_PROPERTIES
 from marathon.data.sample import to_labels
 from marathon.utils import next_size
-
-_warned_missing_total_charge = False
 
 Batch = namedtuple(
     "Batch",
@@ -113,14 +110,6 @@ def to_sample(
     )
     # read directly from atoms.info, bypassing the keys/properties label
     # machinery, so it's always available regardless of requested labels
-    if "total_charge" not in atoms.info:
-        global _warned_missing_total_charge
-        if not _warned_missing_total_charge:
-            comms.warn(
-                "atoms.info['total_charge'] not set; assuming total_charge=0.0 "
-                "for this and all further structures missing it"
-            )
-            _warned_missing_total_charge = True
     structure["total_charge"] = np.float32(atoms.info.get("total_charge", 0.0))
 
     labels = to_labels(

@@ -55,20 +55,19 @@ def test_total_charge_survives_marathon_prepare_roundtrip(tmp_path):
     assert values == [-1.0, 1.0]
 
 
-def test_missing_total_charge_warns_once(capsys):
-    """A missing atoms.info["total_charge"] warns exactly once, even across
-    repeated calls."""
-    import lorem.batching as batching
+def test_missing_total_charge_defaults_to_zero_silently():
+    """A missing atoms.info["total_charge"] falls back to 0.0 without warning.
 
-    batching._warned_missing_total_charge = False
-    try:
-        for _ in range(3):
-            to_sample(molecule("H2O"), cutoff=5.0, energy=False, forces=False, stress=False)
-    finally:
-        batching._warned_missing_total_charge = False
-
-    out = capsys.readouterr().out
-    assert out.count("not set; assuming") == 1
+    to_sample() runs inside the grain worker processes, so it is the wrong
+    place to warn from: a module-level "already warned" flag lives in each
+    worker and fires once per worker rather than once per run. train.py warns
+    instead, once, from the dataset properties in the main process.
+    """
+    for _ in range(3):
+        sample = to_sample(
+            molecule("H2O"), cutoff=5.0, energy=False, forces=False, stress=False
+        )
+        assert float(sample.structure["total_charge"]) == 0.0
 
 
 # -- ChargeConditioning --

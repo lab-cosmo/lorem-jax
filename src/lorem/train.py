@@ -255,6 +255,13 @@ def main():
     batcher_config["properties"] = properties
     comms.talk(f"properties: {list(properties.keys())}")
 
+    if "total_charge" not in properties:
+        comms.warn(
+            "'total_charge' is not among the dataset properties; the model "
+            "will see total_charge=0.0 for every structure. Declare it with "
+            'storage="atoms.info" when preparing the dataset to condition on charge.'
+        )
+
     to_sample = model.to_sample(cutoff=cutoff, keys=keys, properties=properties)
 
     n_train = len(source_train)
