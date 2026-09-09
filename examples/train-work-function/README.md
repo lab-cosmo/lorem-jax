@@ -1,19 +1,19 @@
 # Training example: the work function
 
-Trains `LoremQ` to predict the work function Φ alongside energy and forces,
+Trains `LoremWF` to predict the work function Φ alongside energy and forces,
 once per head, so the two can be compared on identical data and loss weights.
 
 ## The two heads
 
-`LoremQ` conditions on the total charge `q` exactly as `Lorem` does (FiLM on
-the invariant node features), and adds Φ as an output. `work_function_head`
-picks how:
+`LoremWF` conditions on the total charge `q` exactly as `Lorem` does (FiLM on
+the invariant node features), and adds Φ as an output.
+`work_function_from_energy` picks how:
 
-- **`autodiff`** — Φ = ∂E/∂q, read off the same backward pass that already
+- **`true`** — Φ = ∂E/∂q, read off the same backward pass that already
   produces the forces. It costs nothing extra and is consistent with the
   model's own E(q) by construction, but it can only be trained where `q`
   actually varies.
-- **`direct`** — a separate readout that mean-pools the invariant node
+- **`false`** — a separate readout that mean-pools the invariant node
   features of every stage and passes them through an MLP, the way CP-MACE
   predicts the Fermi level (Wang et al., *J. Chem. Theory Comput.* **21**,
   7628 (2025), eq. 8). Free to fit the label, and under no obligation to agree
@@ -48,8 +48,8 @@ Both `total_charge` and `work_function` must be declared in `PROPERTIES`;
 
 - `data.xyz` — cropped dataset in extended XYZ format
 - `prepare.py` — splits into train/valid and writes marathon datasets
-- `my_experiment_autodiff/`, `my_experiment_direct/` — identical apart from
-  `work_function_head` (and the direct head's `work_function_offset`, which
+- `my_experiment_from_energy/`, `my_experiment_direct_head/` — identical apart
+  from `work_function_from_energy` (and the head's `work_function_offset`, which
   starts it near the training set's mean Φ instead of at zero)
 
 ## Running
@@ -59,7 +59,7 @@ Both `total_charge` and `work_function` must be declared in `PROPERTIES`;
 DATASETS=. python prepare.py
 
 # train, either head
-cd my_experiment_autodiff
+cd my_experiment_from_energy
 DATASETS=.. lorem-train
 ```
 
@@ -72,7 +72,7 @@ Five epochs on 18 frames is a smoke test, not a converged model.
 ```python
 from lorem.calculator import Calculator
 
-calc = Calculator.from_checkpoint("my_experiment_autodiff/run/checkpoints/R2_E+F+W")
+calc = Calculator.from_checkpoint("my_experiment_from_energy/run/checkpoints/R2_E+F+W")
 atoms.info["total_charge"] = -0.5
 atoms.calc = calc
 print(atoms.get_potential_energy(), calc.get_property("work_function", atoms))

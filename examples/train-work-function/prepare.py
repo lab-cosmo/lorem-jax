@@ -61,7 +61,7 @@ PROPERTIES = {
 
 prepare(
     [data[i] for i in idx_train],
-    folder=datasets / "loremq_example/train",
+    folder=datasets / "work_function_example/train",
     reporter=reporter,
     batch_size=8,
     samples_per_composition=100,
@@ -70,7 +70,7 @@ prepare(
 
 prepare(
     [data[i] for i in idx_valid],
-    folder=datasets / "loremq_example/valid",
+    folder=datasets / "work_function_example/valid",
     reporter=reporter,
     batch_size=8,
     samples_per_composition=100,

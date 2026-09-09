@@ -19,10 +19,8 @@ from lorem.models.backbone import (
 )
 from lorem.transforms import ToBatch, ToSample
 
-WORK_FUNCTION_HEADS = ("autodiff", "direct")
 
-
-class LoremQ(nn.Module):
+class LoremWF(nn.Module):
     """Lorem for systems where the total charge is a real, varied input.
 
     Adds the work function to the plain energy/forces/stress contract. The
@@ -34,18 +32,18 @@ class LoremQ(nn.Module):
     negative) and E the total energy, not the grand potential. Datasets have
     to supply `work_function` labels in that convention.
 
-    Two ways to get Phi, selected by `work_function_head`:
+    Two ways to get Phi, selected by `work_function_from_energy`:
 
-    - "autodiff": Phi = dE/dq, read off the same backward pass that already
-      produces the forces. Free, and consistent with the model's own E(q) by
+    - True: Phi = dE/dq, read off the same backward pass that already produces
+      the forces. Free, and consistent with the model's own E(q) by
       construction.
-    - "direct": a separate readout, mean-pooling the invariant node features
-      of every stage (Wang et al., J. Chem. Theory Comput. 21, 7628 (2025),
+    - False: a separate readout, mean-pooling the invariant node features of
+      every stage (Wang et al., J. Chem. Theory Comput. 21, 7628 (2025),
       eq. 8). Free to fit the label, but under no obligation to agree with
       dE/dq.
 
-    The trunk is `Lorem`'s, unchanged, so an "autodiff" checkpoint is
-    weight-compatible with a `Lorem` one.
+    The trunk is `Lorem`'s, unchanged, so a `work_function_from_energy` model
+    is weight-compatible with a `Lorem` one.
     """
 
     cutoff: float = 5.0
@@ -61,8 +59,9 @@ class LoremQ(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
-    work_function_head: str = "autodiff"
-    # "direct" only: starts the head near the label mean instead of at 0
+    work_function_from_energy: bool = True
+    # only used when the work function comes from its own head: starts it near
+    # the label mean instead of at 0
     work_function_offset: float = 0.0
 
     @property
@@ -82,12 +81,6 @@ class LoremQ(nn.Module):
         pbc,
         Q,
     ):
-        if self.work_function_head not in WORK_FUNCTION_HEADS:
-            raise ValueError(
-                f"unknown work_function_head: {self.work_function_head!r}, "
-                f"expected one of {WORK_FUNCTION_HEADS}"
-            )
-
         R = sr.positions
         i = sr.centers
         j = sr.others
@@ -285,12 +278,12 @@ class LoremQ(nn.Module):
             stages.append(nodes_scalar)
             energy += masked(MLP(features=[d, d, 1]), nodes_scalar, atom_mask)[..., 0]
 
-        if self.work_function_head == "direct":
+        if self.work_function_from_energy:
+            work_function = None
+        else:
             work_function = PooledScalarHead(features=d, offset=self.work_function_offset)(
                 stages, sr
             )
-        else:
-            work_function = None
 
         return energy, work_function
 
@@ -322,7 +315,7 @@ class LoremQ(nn.Module):
         )
         energies *= sr.atom_mask
 
-        # only the energy sum is differentiated, so the direct head cannot
+        # only the energy sum is differentiated, so a separate head cannot
         # perturb forces or stress; it still receives gradients through `aux`
         return jnp.sum(energies), (energies, work_function)
 
@@ -344,7 +337,7 @@ class LoremQ(nn.Module):
 
         forces = -grads.positions
 
-        if self.work_function_head == "autodiff":
+        if self.work_function_from_energy:
             # structures in a batch do not interact, so the derivative of the
             # summed energy w.r.t. the per-structure total_charge vector is
             # already each structure's own dE/dq. The per-species baseline is

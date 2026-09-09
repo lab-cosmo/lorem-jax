@@ -1,5 +1,5 @@
-train: "loremq_example/train"
-valid: "loremq_example/valid"
+train: "work_function_example/train"
+valid: "work_function_example/valid"
 seed: 23
 batcher:
   batch_size: 4

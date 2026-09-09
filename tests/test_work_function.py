@@ -9,7 +9,7 @@ from ase.calculators.singlepoint import SinglePointCalculator
 
 from lorem.batching import to_batch, to_sample
 from lorem.calculator import Calculator
-from lorem.models.loremq import LoremQ
+from lorem.models.work_function import LoremWF
 
 # max_degree defaults to 6 on the real model: 49 lm components and a 343-path
 # CG kernel, which dominates XLA compile time and is recompiled for every
@@ -18,11 +18,12 @@ from lorem.models.loremq import LoremQ
 # overrides it back to 6, since that is where a degree-specific bug shows up.
 TEST_MAX_DEGREE = 2
 
-HEADS = ["autodiff", "direct"]
+# True = Phi off the energy surface, False = its own pooled head
+HEADS = [True, False]
 
 
-def _make_model(head="autodiff", max_degree=TEST_MAX_DEGREE, cutoff=4.0, **kwargs):
-    return LoremQ(
+def _make_model(from_energy=True, max_degree=TEST_MAX_DEGREE, cutoff=4.0, **kwargs):
+    return LoremWF(
         cutoff=cutoff,
         max_degree=max_degree,
         num_features=8,
@@ -30,7 +31,7 @@ def _make_model(head="autodiff", max_degree=TEST_MAX_DEGREE, cutoff=4.0, **kwarg
         num_radial=4,
         num_message_passing=1,
         lr=False,
-        work_function_head=head,
+        work_function_from_energy=from_energy,
         **kwargs,
     )
 
@@ -45,7 +46,7 @@ def _init(model, seed=0):
     return model.init(jax.random.key(seed), *model.dummy_inputs())
 
 
-# -- the autodiff head: is it really dE/dq? --
+# -- work_function_from_energy=True: is it really dE/dq? --
 
 
 def test_autodiff_work_function_matches_central_difference():
@@ -53,7 +54,7 @@ def test_autodiff_work_function_matches_central_difference():
     O(h^2) and the roundoff floor is O(eps/h), balancing at h ~ eps^(1/3) ~
     5e-3. The tolerance is that floor, not autodiff precision -- the finite
     difference is the inaccurate side of this comparison."""
-    model = _make_model("autodiff")
+    model = _make_model()
     params = _init(model)
 
     q0, h = 0.3, 5e-3
@@ -70,7 +71,7 @@ def test_autodiff_work_function_matches_central_difference():
 def test_autodiff_work_function_varies_with_charge():
     """A constant dE/dq would still pass the finite-difference test at a single
     point; this catches an energy that is merely linear in Q."""
-    model = _make_model("autodiff")
+    model = _make_model()
     params = _init(model)
 
     values = [
@@ -83,9 +84,9 @@ def test_autodiff_work_function_varies_with_charge():
 # -- shared contract of both heads --
 
 
-@pytest.mark.parametrize("head", HEADS)
-def test_work_function_is_zero_on_padded_structures(head):
-    model = _make_model(head)
+@pytest.mark.parametrize("from_energy", HEADS)
+def test_work_function_is_zero_on_padded_structures(from_energy):
+    model = _make_model(from_energy)
     params = _init(model)
 
     batch = _batch_at_charge(model, 0.5)
@@ -97,10 +98,10 @@ def test_work_function_is_zero_on_padded_structures(head):
     assert results["work_function"].shape == results["energy"].shape
 
 
-@pytest.mark.parametrize("head", HEADS)
-def test_work_function_is_rotation_invariant(head):
+@pytest.mark.parametrize("from_energy", HEADS)
+def test_work_function_is_rotation_invariant(from_energy):
     R = np.array(e3x.so3.random_rotation(jax.random.key(0)))
-    model = _make_model(head, max_degree=6)
+    model = _make_model(from_energy, max_degree=6)
     params = _init(model)
 
     atoms = molecule("H2O")
@@ -120,7 +121,7 @@ def test_work_function_key_is_inert_without_a_label():
     change runs that don't train on it."""
     from marathon.evaluate.loss import get_loss_fn
 
-    model = _make_model("autodiff")
+    model = _make_model()
     params = _init(model)
 
     atoms = molecule("H2O")
@@ -140,20 +141,14 @@ def test_work_function_key_is_inert_without_a_label():
     assert not any(k.startswith("work_function") for k in aux)
 
 
-def test_unknown_work_function_head_raises():
-    model = _make_model("pooled")
-    with pytest.raises(ValueError, match="unknown work_function_head"):
-        _init(model)
-
-
-# -- the direct head --
+# -- work_function_from_energy=False: the pooled head --
 
 
 def test_direct_head_is_intensive():
     """The work function is intensive, so the head must mean-pool where the
     energy readout sums. A doubled cell has twice the energy and the same
     work function."""
-    model = _make_model("direct", cutoff=3.0)
+    model = _make_model(from_energy=False, cutoff=3.0)
     params = _init(model)
 
     atoms = bulk("Ar", cubic=True) * [2, 2, 2]
@@ -173,7 +168,7 @@ def test_direct_head_is_intensive():
 def test_direct_head_does_not_change_energy_or_forces():
     """Only jnp.sum(energies) is differentiated, so the head is a pure
     side-output: perturbing its weights must move nothing else."""
-    model = _make_model("direct")
+    model = _make_model(from_energy=False)
     params = _init(model)
     batch = _batch_at_charge(model, 0.3)
     before = model.predict(params, batch)
@@ -194,7 +189,7 @@ def test_work_function_offset_shifts_the_direct_head():
     batch = None
     values = {}
     for value in (0.0, offset):
-        model = _make_model("direct", work_function_offset=value)
+        model = _make_model(from_energy=False, work_function_offset=value)
         params = _init(model)
         batch = _batch_at_charge(model, 0.3)
         values[value] = model.predict(params, batch)["work_function"]
@@ -206,9 +201,9 @@ def test_work_function_offset_shifts_the_direct_head():
 # -- the ASE path --
 
 
-@pytest.mark.parametrize("head", HEADS)
-def test_calculator_exposes_work_function(head):
-    model = _make_model(head)
+@pytest.mark.parametrize("from_energy", HEADS)
+def test_calculator_exposes_work_function(from_energy):
+    model = _make_model(from_energy)
     calc = Calculator.from_model(model)
 
     atoms = molecule("H2O")
@@ -224,7 +219,7 @@ def test_calculator_work_function_tracks_a_charge_sweep():
     """total_charge lives in atoms.info, invisible to the neighbor-list and
     geometry caches, so a reused Calculator must recompute the work function
     when only the charge changes."""
-    model = _make_model("autodiff")
+    model = _make_model()
     params = _init(model)
     calc = Calculator.from_model(model, params=params)
 
@@ -239,7 +234,7 @@ def test_calculator_work_function_tracks_a_charge_sweep():
 
 
 def test_plain_lorem_reports_no_work_function():
-    """The Lorem/LoremQ split: a plain MLIP must not hand back an
+    """The Lorem/LoremWF split: a plain MLIP must not hand back an
     unconstrained dE/dq alongside energy and forces."""
     from lorem.models.mlip import Lorem
 

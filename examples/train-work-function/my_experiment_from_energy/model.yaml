@@ -1,8 +1,8 @@
 model:
-  lorem.LoremQ:
+  lorem.LoremWF:
     # Phi = dE/dq, off the same backward pass as the forces. Free, and
     # consistent with the model's own E(q) by construction.
-    work_function_head: autodiff
+    work_function_from_energy: true
     cutoff: 5.0
     max_degree: 2
     max_degree_lr: 0

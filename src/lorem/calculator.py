@@ -276,6 +276,6 @@ def _model_predicts_bec(model):
 
 
 def _model_predicts_work_function(model):
-    from lorem.models.loremq import LoremQ
+    from lorem.models.work_function import LoremWF
 
-    return isinstance(model, LoremQ)
+    return isinstance(model, LoremWF)

@@ -1,5 +1,5 @@
 from .bec import LoremBEC
-from .loremq import LoremQ
 from .mlip import Lorem
+from .work_function import LoremWF
 
-__all__ = ["Lorem", "LoremQ", "LoremBEC"]
+__all__ = ["Lorem", "LoremWF", "LoremBEC"]

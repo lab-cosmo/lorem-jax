@@ -73,7 +73,7 @@ model:
     num_message_passing: 1
 ```
 
-Use `lorem.LoremBEC` instead of `lorem.Lorem` to train a model that additionally predicts Born effective charges, or `lorem.LoremQ` to additionally predict the work function.
+Use `lorem.LoremBEC` instead of `lorem.Lorem` to train a model that additionally predicts Born effective charges, or `lorem.LoremWF` to additionally predict the work function.
 
 **`settings.yaml`** configures training:
 
@@ -149,28 +149,28 @@ See `examples/train-mlp/` and `examples/train-bec/` for complete examples includ
 
 - **`Lorem`** -- the standard MLIP model (energy + forces + stress)
 - **`LoremBEC`** -- predicts Born effective charges in addition to energy/forces
-- **`LoremQ`** -- predicts the work function in addition to energy/forces
+- **`LoremWF`** -- predicts the work function in addition to energy/forces
 
 All three condition on the total charge `q` of a structure, read from
 `atoms.info["total_charge"]` (see `examples/charge-conditioning/`).
 
-#### `LoremQ` and the work function
+#### `LoremWF` and the work function
 
-`LoremQ` adds a `work_function` output, in the convention
+`LoremWF` adds a `work_function` output, in the convention
 
     Phi = dE/dq = -E_F
 
 with `q` the total charge in units of +e and `E` the total energy (not the
-grand potential). `work_function_head` selects how it is obtained:
+grand potential). `work_function_from_energy` selects how it is obtained:
 
 | value | how |
 |---|---|
-| `autodiff` (default) | `dE/dq`, off the same backward pass as the forces -- free, and consistent with the model's own `E(q)` by construction. Needs `q` to vary in training. |
-| `direct` | a mean-pooled readout of the invariant node features, as CP-MACE predicts the Fermi level. Free to fit the label, and not tied to `dE/dq`. Set `work_function_offset` to the training set's mean work function. |
+| `true` (default) | `dE/dq`, off the same backward pass as the forces -- free, and consistent with the model's own `E(q)` by construction. Needs `q` to vary in training. |
+| `false` | a mean-pooled readout of the invariant node features, as CP-MACE predicts the Fermi level. Free to fit the label, and not tied to `dE/dq`. Set `work_function_offset` to the training set's mean work function. |
 
 Train on it by adding `work_function` to `loss_weights` and declaring it in the
 dataset's `properties` (`{"shape": (1,), "storage": "atoms.info"}`). See
-`examples/train-loremq/`.
+`examples/train-work-function/`.
 
 ### Key hyperparameters
 
