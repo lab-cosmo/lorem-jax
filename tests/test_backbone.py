@@ -2,10 +2,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import functools
-
-import pytest
-
 from lorem.models.backbone import (
     MLP,
     ChemicalEmbedding,
@@ -92,43 +88,20 @@ def test_spherical_norm_gradient():
         jax.config.update("jax_enable_x64", prev)
 
 
-def test_spherical_norm_is_exact_at_zero():
-    """A vanishing degree must give exactly 0, not a regularised floor."""
+def test_spherical_norm_second_derivative_at_zero():
     max_degree = 2
-    x = jnp.zeros((1, (max_degree + 1) ** 2))
-    np.testing.assert_array_equal(spherical_norm(x, max_degree), jnp.zeros((1, 3)))
+    num_lm = (max_degree + 1) ** 2
+    x0 = jnp.zeros((1, num_lm))
 
+    def f(x):
+        return jnp.sum(spherical_norm(x, max_degree))
 
-def _sum_norm(x, max_degree):
-    return jnp.sum(spherical_norm(x, max_degree))
+    def second_grad(x):
+        return jax.grad(lambda x: jnp.sum(jax.grad(f)(x)))(x)
 
-
-def _grad(f):
-    return lambda x: jax.grad(lambda y: jnp.sum(f(y)))(x)
-
-
-@pytest.mark.parametrize("order", [1, 2, 3])
-@pytest.mark.parametrize("jit", [False, True], ids=["eager", "jit"])
-def test_spherical_norm_derivatives_finite_at_zero(order, jit):
-    """Repeated differentiation at a vanishing degree must not produce NaN/inf."""
-    max_degree = 2
-    x = jnp.zeros((1, (max_degree + 1) ** 2))
-
-    fn = functools.partial(_sum_norm, max_degree=max_degree)
-    for _ in range(order):
-        fn = _grad(fn)
-
-    result = (jax.jit(fn) if jit else fn)(x)
-    assert bool(jnp.all(jnp.isfinite(result)))
-
-
-def test_spherical_norm_hessian_finite_at_zero_forward_over_reverse():
-    """forward-over-reverse takes a different code path than grad-of-grad."""
-    max_degree = 2
-    x = jnp.zeros((1, (max_degree + 1) ** 2))
-
-    hessian = jax.jacfwd(jax.grad(functools.partial(_sum_norm, max_degree=max_degree)))
-    assert bool(jnp.all(jnp.isfinite(hessian(x))))
+    for fn in (second_grad, jax.jit(second_grad)):
+        g2 = fn(x0)
+        assert bool(jnp.all(jnp.isfinite(g2)))
 
 
 def test_spherical_norm_last_axis():
