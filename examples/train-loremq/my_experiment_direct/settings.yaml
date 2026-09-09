@@ -1,0 +1,23 @@
+train: "loremq_example/train"
+valid: "loremq_example/valid"
+seed: 23
+batcher:
+  batch_size: 4
+  coarse_strategy: powers_of_4
+  size_strategy: powers_of_4
+  fine_strategy: powers_of_4
+# razor's tuned triple; the shares follow from the label variances, so they
+# transfer between the two heads but not between datasets
+loss_weights: {"energy": 100.0, "forces": 1.0, "work_function": 0.05}
+checkpointers: full
+optimizer: muon
+valid_every_epoch: 1
+decay_style: warmup_cosine
+warmup_epochs: 0
+start_learning_rate: 2e-4
+gradient_clip: 1.0
+max_epochs: 5
+benchmark_pipeline: True
+use_wandb: False
+default_matmul_precision: "float32"
+worker_count: 2

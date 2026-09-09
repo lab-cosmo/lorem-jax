@@ -33,6 +33,7 @@ class Calculator(BaseCalculator):
         atoms=None,
         stress=False,
         bec=False,
+        work_function=False,
         add_offset=True,
         double_precision=False,
         skin=0.25,
@@ -51,6 +52,8 @@ class Calculator(BaseCalculator):
             self.implemented_properties.append("stress")
         if bec:
             self.implemented_properties.append("born_effective_charges")
+        if work_function:
+            self.implemented_properties.append("work_function")
 
         predict_fn = lambda params, batch: pred_fn(params, batch, stress=stress)
 
@@ -72,6 +75,7 @@ class Calculator(BaseCalculator):
             species_weights = {}
             kwargs.setdefault("add_offset", False)
         kwargs.setdefault("bec", _model_predicts_bec(model))
+        kwargs.setdefault("work_function", _model_predicts_work_function(model))
         return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
 
     @classmethod
@@ -94,6 +98,7 @@ class Calculator(BaseCalculator):
         params = read_msgpack(folder / "model/model.msgpack")
 
         kwargs.setdefault("bec", _model_predicts_bec(model))
+        kwargs.setdefault("work_function", _model_predicts_work_function(model))
         return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
@@ -216,6 +221,10 @@ class Calculator(BaseCalculator):
                 from ase.stress import full_3x3_to_voigt_6_stress
 
                 actual_results[key] = full_3x3_to_voigt_6_stress(virial / volume)
+            elif key == "work_function":
+                actual_results[key] = float(
+                    results[key][self.batch.sr.structure_mask].squeeze()
+                )
 
         # BEC passthrough: when model outputs "apt" (e.g. LoremBEC), expose as
         # "born_effective_charges" in (natoms, 3, 3) layout for ase compatibility
@@ -264,3 +273,9 @@ def _model_predicts_bec(model):
     from lorem.models.bec import LoremBEC
 
     return isinstance(model, LoremBEC)
+
+
+def _model_predicts_work_function(model):
+    from lorem.models.loremq import LoremQ
+
+    return isinstance(model, LoremQ)

@@ -4,6 +4,7 @@ from ._version import __version__
 from .batching import to_batch, to_sample
 from .calculator import Calculator as LOREMCalculator
 from .models.bec import LoremBEC
+from .models.loremq import LoremQ
 from .models.mlip import Lorem
 from .transforms import ToBatch, ToSample
 
@@ -12,6 +13,7 @@ comms = Comms("lorem")
 __all__ = [
     "__version__",
     "Lorem",
+    "LoremQ",
     "LoremBEC",
     "LOREMCalculator",
     "to_sample",
