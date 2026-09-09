@@ -2,7 +2,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import functools
 from collections.abc import Sequence
 
 import e3x
@@ -197,24 +196,18 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
     )(x)
 
 
-@functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
+# x/||x|| (the gradient of a vector norm) is genuinely non-smooth at x=0 --
+# no jnp.where-based guarding fixes a *second* derivative through a real
+# singularity, and training needs exactly that (forces = grad(E, positions),
+# then grad(loss(forces), params)). Regularizing with a small eps makes the
+# norm and all its derivatives smooth everywhere, including at x=0, so plain
+# autodiff handles arbitrary differentiation order without a custom_jvp.
+_SPHERICAL_NORM_EPS = 1e-12
+
+
 def spherical_norm(X, max_degree):
-    squared = jax.lax.square(X)
-    trace = degree_wise_trace(squared, max_degree)
-    norm = jnp.sqrt(trace)
-    return norm
-
-
-@spherical_norm.defjvp
-def spherical_norm_jvp(max_degree, primals, tangents):
-    (x,) = primals
-    (x_dot,) = tangents
-    primal_out = spherical_norm(x, max_degree)
-
-    x_hat = x / degree_wise_repeat(jnp.where(primal_out > 0, primal_out, 1), max_degree, -1)
-
-    tangent_out = degree_wise_trace(x_dot * x_hat, max_degree)
-    return primal_out, tangent_out
+    trace = degree_wise_trace(jax.lax.square(X), max_degree)
+    return jnp.sqrt(trace + _SPHERICAL_NORM_EPS)
 
 
 def spherical_norm_last_axis(X, max_degree):
