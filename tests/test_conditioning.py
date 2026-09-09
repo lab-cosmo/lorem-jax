@@ -181,3 +181,28 @@ def test_calculator_picks_up_total_charge_change_at_fixed_geometry():
     fresh_calc.calculate(atoms_minus)
 
     assert np.allclose(e_minus, fresh_calc.results["energy"], atol=1e-6)
+
+
+def test_calculator_picks_up_simultaneous_geometry_and_charge_change():
+    """A step that moves atoms within the skin budget *and* changes
+    total_charge must apply both. An if/elif chain applies only the geometry
+    branch and -- because it copies atoms first -- hides the stale charge from
+    every later call."""
+    model = _make_model()
+    key = jax.random.key(0)
+    params = model.init(key, *model.dummy_inputs())
+
+    atoms = molecule("H2O")
+    atoms.info["total_charge"] = 1.0
+    calc = Calculator.from_model(model, params=params)
+    calc.calculate(atoms)
+
+    moved = atoms.copy()
+    moved.positions[0, 0] += 0.01  # well inside the 0.25 A skin
+    moved.info["total_charge"] = -1.0
+    calc.calculate(moved)
+
+    fresh = Calculator.from_model(model, params=params)
+    fresh.calculate(moved)
+
+    assert np.allclose(calc.results["energy"], fresh.results["energy"], atol=1e-6)

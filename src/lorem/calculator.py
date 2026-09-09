@@ -102,17 +102,25 @@ class Calculator(BaseCalculator):
             self.results = {}
             self.atoms = atoms.copy()
             self.setup(atoms)
-        elif self.atoms is None or not self._geometry_unchanged(atoms):
-            # Positions and/or cell changed but within skin budget
-            self.results = {}
-            self.atoms = atoms.copy()
+            return
+
+        # Geometry and total_charge change independently: a step can stay
+        # inside the skin budget *and* change the charge, and total_charge
+        # lives in atoms.info, where neither the neighbor list cache nor
+        # _geometry_unchanged() can see it. Separate flags rather than an
+        # if/elif chain, so a simultaneous change is not dropped.
+        stale = self.atoms is None
+        moved = stale or not self._geometry_unchanged(atoms)
+        recharged = stale or not self._conditioning_unchanged(atoms)
+
+        if not (moved or recharged):
+            return
+
+        self.results = {}
+        self.atoms = atoms.copy()
+        if moved:
             self._update_geometry(atoms)
-        elif not self._conditioning_unchanged(atoms):
-            # Geometry unchanged, but total_charge changed -- it lives in
-            # atoms.info, not positions/cell, so the neighbor list cache
-            # and _geometry_unchanged() above never see it.
-            self.results = {}
-            self.atoms = atoms.copy()
+        if recharged:
             self._update_conditioning(atoms)
 
     def _geometry_unchanged(self, atoms):
