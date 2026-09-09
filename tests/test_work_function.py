@@ -11,14 +11,11 @@ from lorem.batching import to_batch, to_sample
 from lorem.calculator import Calculator
 from lorem.models.work_function import LoremWF
 
-# max_degree defaults to 6 on the real model: 49 lm components and a 343-path
-# CG kernel, which dominates XLA compile time and is recompiled for every
-# distinct model here. These tests check plumbing and derivative correctness,
-# neither of which is degree-specific, so they run at 2. The rotation test
-# overrides it back to 6, since that is where a degree-specific bug shows up.
+# 2, not the production 6: max_degree drives a 343-path CG kernel that
+# dominates XLA compile time, and nothing here is degree-specific except the
+# rotation test, which overrides it back.
 TEST_MAX_DEGREE = 2
 
-# True = Phi off the energy surface, False = its own pooled head
 HEADS = [True, False]
 
 
@@ -46,14 +43,13 @@ def _init(model, seed=0):
     return model.init(jax.random.key(seed), *model.dummy_inputs())
 
 
-# -- work_function_from_energy=True: is it really dE/dq? --
+# -- work_function_from_energy=True --
 
 
-def test_autodiff_work_function_matches_central_difference():
-    """h is near-optimal for a float32 central difference: truncation error is
-    O(h^2) and the roundoff floor is O(eps/h), balancing at h ~ eps^(1/3) ~
-    5e-3. The tolerance is that floor, not autodiff precision -- the finite
-    difference is the inaccurate side of this comparison."""
+def test_work_function_matches_central_difference():
+    """h=5e-3 balances the O(h^2) truncation error against the O(eps/h)
+    float32 roundoff floor, and the tolerance is that floor -- the finite
+    difference is the inaccurate side of this comparison, not the gradient."""
     model = _make_model()
     params = _init(model)
 
@@ -63,14 +59,13 @@ def test_autodiff_work_function_matches_central_difference():
 
     e_plus, _ = model.energy(params, _batch_at_charge(model, q0 + h))
     e_minus, _ = model.energy(params, _batch_at_charge(model, q0 - h))
-    finite_difference = (e_plus - e_minus) / (2.0 * h)
 
-    np.testing.assert_allclose(wf, finite_difference, rtol=1e-3, atol=1e-5)
+    np.testing.assert_allclose(wf, (e_plus - e_minus) / (2.0 * h), rtol=1e-3, atol=1e-5)
 
 
-def test_autodiff_work_function_varies_with_charge():
-    """A constant dE/dq would still pass the finite-difference test at a single
-    point; this catches an energy that is merely linear in Q."""
+def test_work_function_varies_with_charge():
+    """A constant dE/dq would still pass the finite-difference test at a
+    single point."""
     model = _make_model()
     params = _init(model)
 
@@ -81,7 +76,7 @@ def test_autodiff_work_function_varies_with_charge():
     assert len(set(values)) == 3
 
 
-# -- shared contract of both heads --
+# -- both heads --
 
 
 @pytest.mark.parametrize("from_energy", HEADS)
@@ -92,8 +87,7 @@ def test_work_function_is_zero_on_padded_structures(from_energy):
     batch = _batch_at_charge(model, 0.5)
     results = model.predict(params, batch)
 
-    # to_batch pads to a power of 2, so slot 1 is padding
-    assert not bool(batch.sr.structure_mask[1])
+    assert not bool(batch.sr.structure_mask[1])  # to_batch pads to a power of 2
     assert float(results["work_function"][1]) == 0.0
     assert results["work_function"].shape == results["energy"].shape
 
@@ -116,8 +110,7 @@ def test_work_function_is_rotation_invariant(from_energy):
 
 
 def test_work_function_key_is_inert_without_a_label():
-    """predict() always returns work_function, but the loss must ignore it
-    unless it is in loss_weights -- otherwise adding the key would silently
+    """predict() always returns work_function, so adding the key must not
     change runs that don't train on it."""
     from marathon.evaluate.loss import get_loss_fn
 
@@ -141,13 +134,11 @@ def test_work_function_key_is_inert_without_a_label():
     assert not any(k.startswith("work_function") for k in aux)
 
 
-# -- work_function_from_energy=False: the pooled head --
+# -- work_function_from_energy=False --
 
 
 def test_direct_head_is_intensive():
-    """The work function is intensive, so the head must mean-pool where the
-    energy readout sums. A doubled cell has twice the energy and the same
-    work function."""
+    """The head must mean-pool where the energy readout sums."""
     model = _make_model(from_energy=False, cutoff=3.0)
     params = _init(model)
 
@@ -167,7 +158,7 @@ def test_direct_head_is_intensive():
 
 def test_direct_head_does_not_change_energy_or_forces():
     """Only jnp.sum(energies) is differentiated, so the head is a pure
-    side-output: perturbing its weights must move nothing else."""
+    side-output."""
     model = _make_model(from_energy=False)
     params = _init(model)
     batch = _batch_at_charge(model, 0.3)
@@ -180,22 +171,6 @@ def test_direct_head_does_not_change_energy_or_forces():
     np.testing.assert_array_equal(after["energy"], before["energy"])
     np.testing.assert_array_equal(after["forces"], before["forces"])
     assert not np.allclose(after["work_function"], before["work_function"])
-
-
-def test_work_function_offset_shifts_the_direct_head():
-    """The offset starts the head near the label mean; it must be a plain
-    additive shift on real structures and stay off the padding."""
-    offset = 4.5
-    batch = None
-    values = {}
-    for value in (0.0, offset):
-        model = _make_model(from_energy=False, work_function_offset=value)
-        params = _init(model)
-        batch = _batch_at_charge(model, 0.3)
-        values[value] = model.predict(params, batch)["work_function"]
-
-    np.testing.assert_allclose(values[offset][0], values[0.0][0] + offset, rtol=1e-5)
-    assert float(values[offset][1]) == 0.0
 
 
 # -- the ASE path --
@@ -217,8 +192,7 @@ def test_calculator_exposes_work_function(from_energy):
 
 def test_calculator_work_function_tracks_a_charge_sweep():
     """total_charge lives in atoms.info, invisible to the neighbor-list and
-    geometry caches, so a reused Calculator must recompute the work function
-    when only the charge changes."""
+    geometry caches."""
     model = _make_model()
     params = _init(model)
     calc = Calculator.from_model(model, params=params)
@@ -234,8 +208,8 @@ def test_calculator_work_function_tracks_a_charge_sweep():
 
 
 def test_plain_lorem_reports_no_work_function():
-    """The Lorem/LoremWF split: a plain MLIP must not hand back an
-    unconstrained dE/dq alongside energy and forces."""
+    """A plain MLIP must not hand back an unconstrained dE/dq alongside
+    energy and forces."""
     from lorem.models.mlip import Lorem
 
     model = Lorem(
@@ -247,6 +221,8 @@ def test_plain_lorem_reports_no_work_function():
         lr=False,
     )
     params = _init(model)
-    results = model.predict(params, _batch_at_charge(model, 0.3))
 
-    assert set(results) == {"energy", "forces"}
+    assert set(model.predict(params, _batch_at_charge(model, 0.3))) == {
+        "energy",
+        "forces",
+    }

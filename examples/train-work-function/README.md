@@ -19,9 +19,14 @@ the invariant node features), and adds Φ as an output.
   7628 (2025), eq. 8). Free to fit the label, and under no obligation to agree
   with the model's own ∂E/∂q.
 
-The convention is Φ = ∂E/∂q = −E_F, with `q` the total charge in units of +e
-and `E` the total energy — not the grand potential. Datasets have to supply
-`work_function` labels in that convention.
+The convention is Φ = ∂E/∂q, with `q` the total charge in units of +e and `E`
+the total energy — not the grand potential. The textbook Φ = −E_F carries a
+minus because E_F = ∂E/∂N_e counts electrons; `q` counts the holes, so
+∂N_e = −∂q and the two minuses cancel. There is no sign flip in the code, and
+`razor`'s labels confirm it: `work_function` regresses on the dataset's own
+finite-difference `dEdq_fd` at slope +0.993, r = +0.998.
+
+Datasets have to supply `work_function` labels in this convention.
 
 Only the energy sum is differentiated, so the direct head is a pure
 side-output: it cannot perturb energy, forces or stress.

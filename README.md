@@ -158,10 +158,14 @@ All three condition on the total charge `q` of a structure, read from
 
 `LoremWF` adds a `work_function` output, in the convention
 
-    Phi = dE/dq = -E_F
+    Phi = dE/dq
 
 with `q` the total charge in units of +e and `E` the total energy (not the
-grand potential). `work_function_from_energy` selects how it is obtained:
+grand potential). The textbook `Phi = -E_F` carries a minus because
+`E_F = dE/dN_e` counts electrons; `q` counts the holes, so `dN_e = -dq` and
+the two minuses cancel -- there is no sign flip in the code, and datasets have
+to supply `work_function` labels in this convention.
+`work_function_from_energy` selects how `Phi` is obtained:
 
 | value | how |
 |---|---|

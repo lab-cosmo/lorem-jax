@@ -19,33 +19,14 @@ from lorem.models.backbone import (
 )
 from lorem.transforms import ToBatch, ToSample
 
+# Phi = dE/dq, with q the total charge in units of +e and E the total energy,
+# not the grand potential. The textbook Phi = -E_F carries a minus because E_F
+# = dE/dN_e counts electrons; q counts the holes, dN_e = -dq, and the two
+# minuses cancel. So there is no sign flip anywhere below, and datasets must
+# supply `work_function` labels in this convention.
+
 
 class LoremWF(nn.Module):
-    """Lorem for systems where the total charge is a real, varied input.
-
-    Adds the work function to the plain energy/forces/stress contract. The
-    convention is
-
-        Phi = dE/dq = -E_F
-
-    with q the total charge in units of +e (so gaining electrons makes q
-    negative) and E the total energy, not the grand potential. Datasets have
-    to supply `work_function` labels in that convention.
-
-    Two ways to get Phi, selected by `work_function_from_energy`:
-
-    - True: Phi = dE/dq, read off the same backward pass that already produces
-      the forces. Free, and consistent with the model's own E(q) by
-      construction.
-    - False: a separate readout, mean-pooling the invariant node features of
-      every stage (Wang et al., J. Chem. Theory Comput. 21, 7628 (2025),
-      eq. 8). Free to fit the label, but under no obligation to agree with
-      dE/dq.
-
-    The trunk is `Lorem`'s, unchanged, so a `work_function_from_energy` model
-    is weight-compatible with a `Lorem` one.
-    """
-
     cutoff: float = 5.0
     max_degree: int = 6
     max_degree_lr: int = 2
@@ -59,9 +40,9 @@ class LoremWF(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = True
     initialize_node_features: bool = True
+    # False routes Phi to its own pooled head instead of the energy derivative
     work_function_from_energy: bool = True
-    # only used when the work function comes from its own head: starts it near
-    # the label mean instead of at 0
+    # head only: starts it near the label mean instead of at 0
     work_function_offset: float = 0.0
 
     @property
@@ -315,8 +296,8 @@ class LoremWF(nn.Module):
         )
         energies *= sr.atom_mask
 
-        # only the energy sum is differentiated, so a separate head cannot
-        # perturb forces or stress; it still receives gradients through `aux`
+        # only the sum is differentiated, so the head cannot reach the forces;
+        # it still trains, through `aux`
         return jnp.sum(energies), (energies, work_function)
 
     def predict(self, params, batch, stress=False):
@@ -338,11 +319,9 @@ class LoremWF(nn.Module):
         forces = -grads.positions
 
         if self.work_function_from_energy:
-            # structures in a batch do not interact, so the derivative of the
-            # summed energy w.r.t. the per-structure total_charge vector is
-            # already each structure's own dE/dq. The per-species baseline is
-            # charge-independent and drops out, so unlike the energy itself
-            # this needs no offset correction.
+            # structures in a batch do not interact, so d(sum)/dq_s is already
+            # structure s's own dE/dq. The per-species baseline is
+            # charge-independent, so this needs no offset unlike the energy.
             work_function = batch_grads.total_charge
 
         results = {
@@ -365,15 +344,10 @@ class LoremWF(nn.Module):
         return results
 
 
+# CP-MACE's Fermi-level readout: every stage's invariant node features
+# concatenated, pooled over atoms, one MLP (Wang et al., J. Chem. Theory
+# Comput. 21, 7628 (2025), eq. 8)
 class PooledScalarHead(nn.Module):
-    """Mean-pooled readout of the invariant node features, for the work function.
-
-    Follows CP-MACE's Fermi-level head (Wang et al., J. Chem. Theory Comput.
-    21, 7628 (2025), eq. 8): concatenate the invariant node features of every
-    stage, pool over atoms, one MLP. The pooling is a *mean*, not the sum the
-    energy readout uses, because the work function is intensive.
-    """
-
     features: int
     offset: float = 0.0
 
@@ -387,6 +361,7 @@ class PooledScalarHead(nn.Module):
         counts = jax.ops.segment_sum(
             sr.atom_mask.astype(x.dtype), atom_to_structure, num_structures
         )
+        # mean, not the sum the energy readout uses: Phi is intensive
         pooled = (
             jax.ops.segment_sum(x, atom_to_structure, num_structures)
             / jnp.maximum(counts, 1.0)[..., None]
