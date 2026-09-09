@@ -239,6 +239,8 @@ class LoremBEC(nn.Module):
 
             # -- residual prediction --
             energy += masked(MLP(features=[d, d, 1]), nodes_scalar, atom_mask)[..., 0]
+            apt += PerParticleTensorPredictor(features=self.num_features)(spherical_updates)
+            apt *= atom_mask[..., None, None]
 
         return energy, apt
 
