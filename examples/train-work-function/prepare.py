@@ -27,8 +27,10 @@ idx_train, idx_valid, idx_test = get_splits(
 reporter = comms.reporter()
 reporter.start("processing")
 
-# `work_function_offset` in my_experiment_direct/model.yaml starts the direct
-# head near this value instead of at zero
+# The offset the direct head starts from, fitted here rather than typed into
+# model.yaml -- the same reason the per-species energy baseline is fitted.
+# It rides along in properties.yaml (prepare() persists this dict verbatim)
+# and train.py resolves `work_function_offset: null` from it.
 train_wf = np.array([data[i].info["work_function"] for i in idx_train])
 comms.talk(f"train work function: mean {train_wf.mean():.3f} V, std {train_wf.std():.3f} V")
 
@@ -50,6 +52,7 @@ PROPERTIES = {
         "storage": "atoms.info",
         "report_unit": (1000, "mV"),
         "symbol": "Φ",
+        "offset": float(train_wf.mean()),
     },
     # a model input, not a label -- but prepare() only persists atoms.info
     # entries listed here, so it still has to be declared

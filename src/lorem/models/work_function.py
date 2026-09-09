@@ -42,8 +42,11 @@ class LoremWF(nn.Module):
     initialize_node_features: bool = True
     # False routes Phi to its own pooled head instead of the energy derivative
     work_function_from_energy: bool = True
-    # head only: starts it near the label mean instead of at 0
-    work_function_offset: float = 0.0
+    # head only. None takes the value prepare.py fitted from the training
+    # labels, the way the energy's per-species baseline is fitted rather than
+    # typed; train.py resolves it and the resolved number is what the
+    # checkpoint records. A bare model has no dataset, so None means 0 there.
+    work_function_offset: float | None = None
 
     @property
     def to_batch(self):
@@ -262,9 +265,10 @@ class LoremWF(nn.Module):
         if self.work_function_from_energy:
             work_function = None
         else:
-            work_function = PooledScalarHead(features=d, offset=self.work_function_offset)(
-                stages, sr
-            )
+            offset = self.work_function_offset
+            work_function = PooledScalarHead(
+                features=d, offset=0.0 if offset is None else offset
+            )(stages, sr)
 
         return energy, work_function
 

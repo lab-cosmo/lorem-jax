@@ -155,6 +155,29 @@ def main():
         species_to_weight = None
 
     model = from_dict(model_config["model"])
+
+    # Phi's offset is a property of the training labels, not a hyperparameter.
+    # `null` in model.yaml means "use the value prepare.py fitted", the same
+    # way the per-species energy baseline is fitted rather than typed. Resolved
+    # here so the number the run actually used is what to_dict() writes into
+    # the checkpoint's model.yaml.
+    if getattr(model, "work_function_offset", 0.0) is None and not getattr(
+        model, "work_function_from_energy", True
+    ):
+        import dataclasses
+
+        fitted = read_yaml(data_train / "properties.yaml").get("work_function", {})
+        offset = fitted.get("offset")
+        if offset is None:
+            comms.warn(
+                "model.yaml asks for a fitted work_function_offset but "
+                f"{data_train}/properties.yaml carries none; using 0.0. Add "
+                '"offset" to the work_function entry in prepare.py.'
+            )
+            offset = 0.0
+        model = dataclasses.replace(model, work_function_offset=float(offset))
+        comms.talk(f"work_function_offset resolved to {float(offset):.4f}")
+
     cutoff = model.cutoff
 
     params = model.init(init_key, *model.dummy_inputs())

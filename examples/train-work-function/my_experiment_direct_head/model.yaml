@@ -1,11 +1,12 @@
 model:
   lorem.LoremWF:
     # Phi from a mean-pooled readout of the invariant node features, the way
-    # CP-MACE predicts the Fermi level. The offset starts the head near the
-    # training set's mean work function (printed by prepare.py) instead of at
-    # zero, against labels spanning 2-7 V.
+    # CP-MACE predicts the Fermi level.
     work_function_from_energy: false
-    work_function_offset: 4.91
+    # null: take the offset prepare.py fitted from the training labels, so it
+    # is never typed by hand. train.py resolves it and the resolved value is
+    # what the checkpoint records.
+    work_function_offset: null
     cutoff: 5.0
     max_degree: 2
     max_degree_lr: 0
