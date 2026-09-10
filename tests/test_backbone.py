@@ -2,6 +2,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+import pytest
+
 from lorem.models.backbone import (
     MLP,
     ChemicalEmbedding,
@@ -86,6 +88,45 @@ def test_spherical_norm_gradient():
         np.testing.assert_allclose(grad_custom, grad_fd, atol=1e-5)
     finally:
         jax.config.update("jax_enable_x64", prev)
+
+
+def test_spherical_norm_hessian():
+    """The custom JVP's own derivative must match the true Hessian of the norm."""
+    prev = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    try:
+        max_degree = 2
+        num_lm = (max_degree + 1) ** 2
+        x = jax.random.normal(jax.random.key(1), (1, num_lm), dtype=jnp.float64)
+        weights = jnp.arange(1.0, max_degree + 2)
+
+        def f(x):
+            return (spherical_norm(x, max_degree) * weights).sum()
+
+        def f_plain(x):
+            return (jnp.sqrt(degree_wise_trace(x**2, max_degree)) * weights).sum()
+
+        np.testing.assert_allclose(jax.hessian(f)(x), jax.hessian(f_plain)(x), rtol=1e-8)
+    finally:
+        jax.config.update("jax_enable_x64", prev)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-10, 1e-18, 1e-19, 1e-22, 1e-30, 1e-38, 0.0])
+def test_spherical_norm_second_derivative_finite(scale):
+    """Force training differentiates twice; that must stay finite for tiny blocks."""
+    max_degree = 2
+    num_lm = (max_degree + 1) ** 2
+    x = scale * jax.random.normal(jax.random.key(2), (1, num_lm), dtype=jnp.float32)
+
+    def f(x):
+        return (spherical_norm(x, max_degree) * jnp.arange(1.0, max_degree + 2)).sum()
+
+    grad = jax.grad(f)
+    reverse = jax.grad(lambda x: (grad(x) ** 2).sum())(x)
+    forward = jax.jvp(grad, (x,), (jnp.ones_like(x),))[1]
+    assert jnp.all(jnp.isfinite(reverse)) and jnp.all(jnp.isfinite(forward))
+    if scale == 0.0:
+        np.testing.assert_array_equal(spherical_norm(x, max_degree), 0.0)
 
 
 def test_spherical_norm_last_axis():
