@@ -170,7 +170,7 @@ to supply `work_function` labels in this convention.
 | value | how |
 |---|---|
 | `true` (default) | `dE/dq`, off the same backward pass as the forces -- free, and consistent with the model's own `E(q)` by construction. Needs `q` to vary in training. |
-| `false` | a mean-pooled readout of the invariant node features, as CP-MACE predicts the Fermi level. Free to fit the label, and not tied to `dE/dq`. Set `work_function_offset` to the training set's mean work function. |
+| `false` | a mean-pooled readout of the invariant node features, as CP-MACE predicts the Fermi level. Free to fit the label, and **not tied to `dE/dq`** -- measured at 2x (razor) to 24x (cpmace) worse agreement with the model's own energy surface than the default. |
 
 Train on it by adding `work_function` to `loss_weights` and declaring it in the
 dataset's `properties` (`{"shape": (1,), "storage": "atoms.info"}`). See

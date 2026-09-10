@@ -226,34 +226,3 @@ def test_plain_lorem_reports_no_work_function():
         "energy",
         "forces",
     }
-
-
-def test_offset_defaults_to_none_and_acts_as_zero():
-    """`None` means "take the value prepare.py fitted", which a bare model has
-    no dataset to look up -- so it must behave as no offset rather than fail."""
-    model = _make_model(from_energy=False)
-    assert model.work_function_offset is None
-
-    params = _init(model)
-    batch = _batch_at_charge(model, 0.3)
-    unset = model.predict(params, batch)["work_function"]
-
-    explicit = _make_model(from_energy=False, work_function_offset=0.0)
-    zero = explicit.predict(_init(explicit), batch)["work_function"]
-
-    np.testing.assert_allclose(unset, zero, rtol=1e-6)
-
-
-def test_offset_shifts_only_real_structures():
-    """A resolved offset is a plain additive shift, and must stay off the
-    padding -- the masking runs after it is added."""
-    model = _make_model(from_energy=False, work_function_offset=4.5)
-    params = _init(model)
-    batch = _batch_at_charge(model, 0.3)
-    shifted = model.predict(params, batch)["work_function"]
-
-    base = _make_model(from_energy=False, work_function_offset=0.0)
-    plain = base.predict(_init(base), batch)["work_function"]
-
-    np.testing.assert_allclose(shifted[0], plain[0] + 4.5, rtol=1e-5)
-    assert float(shifted[1]) == 0.0

@@ -54,8 +54,7 @@ Both `total_charge` and `work_function` must be declared in `PROPERTIES`;
 - `data.xyz` — cropped dataset in extended XYZ format
 - `prepare.py` — splits into train/valid and writes marathon datasets
 - `my_experiment_from_energy/`, `my_experiment_direct_head/` — identical apart
-  from `work_function_from_energy` (and the head's `work_function_offset`, which
-  starts it near the training set's mean Φ instead of at zero)
+  from `work_function_from_energy`
 
 ## Running
 
