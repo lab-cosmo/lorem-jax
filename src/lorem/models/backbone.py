@@ -2,6 +2,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+import functools
 from collections.abc import Sequence
 
 import e3x
@@ -196,18 +197,40 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
     )(x)
 
 
-# x/||x|| (the gradient of a vector norm) is genuinely non-smooth at x=0 --
-# no jnp.where-based guarding fixes a *second* derivative through a real
-# singularity, and training needs exactly that (forces = grad(E, positions),
-# then grad(loss(forces), params)). Regularizing with a small eps makes the
-# norm and all its derivatives smooth everywhere, including at x=0, so plain
-# autodiff handles arbitrary differentiation order without a custom_jvp.
-_SPHERICAL_NORM_EPS = 1e-12
-
-
+@functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
 def spherical_norm(X, max_degree):
-    trace = degree_wise_trace(jax.lax.square(X), max_degree)
-    return jnp.sqrt(trace + _SPHERICAL_NORM_EPS)
+    """Per-degree L2 norm; safe to differentiate twice at any float32 scale."""
+    return jnp.sqrt(degree_wise_trace(jax.lax.square(X), max_degree))
+
+
+@spherical_norm.defjvp
+def _spherical_norm_jvp(max_degree, primals, tangents):
+    (x,), (x_dot,) = primals, tangents
+    tangent_out = degree_wise_trace(x_dot * spherical_unit(x, max_degree), max_degree)
+    return spherical_norm(x, max_degree), tangent_out
+
+
+@functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
+def spherical_unit(X, max_degree):
+    """Per-degree x/||x||, zero where the norm vanishes."""
+    return X * _spherical_inverse_norm(X, max_degree)
+
+
+@spherical_unit.defjvp
+def _spherical_unit_jvp(max_degree, primals, tangents):
+    # d(x/n) = (v - x_hat (x_hat . v)) / n only ever divides by n, never by n**2,
+    # which is what keeps the second derivative of the norm finite for tiny blocks
+    (x,), (v,) = primals, tangents
+    inverse_norm = _spherical_inverse_norm(x, max_degree)
+    x_hat = x * inverse_norm
+    proj = degree_wise_repeat(degree_wise_trace(x_hat * v, max_degree), max_degree, -1)
+    return x_hat, (v - x_hat * proj) * inverse_norm
+
+
+def _spherical_inverse_norm(X, max_degree):
+    norm = spherical_norm(X, max_degree)
+    inverse = jnp.where(norm > 0, 1.0 / jnp.where(norm > 0, norm, 1.0), 0.0)
+    return degree_wise_repeat(inverse, max_degree, -1)
 
 
 def spherical_norm_last_axis(X, max_degree):
