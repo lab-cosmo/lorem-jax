@@ -7,6 +7,7 @@ from jaxpme.batched_mixed import Ewald
 
 from lorem.models.backbone import (
     MLP,
+    ChargeConditioning,
     Initial,
     RadialCoefficients,
     Update,
@@ -49,6 +50,7 @@ class Lorem(nn.Module):
         sr,
         nopbc,
         pbc,
+        Q,
     ):
         R = sr.positions
         i = sr.centers
@@ -57,6 +59,7 @@ class Lorem(nn.Module):
         cell_shifts = sr.cell_shifts
         pair_mask = sr.pair_mask
         atom_mask = sr.atom_mask
+        atom_to_structure = sr.atom_to_structure
 
         R_ij = (
             R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[sr.pair_to_structure])
@@ -72,6 +75,8 @@ class Lorem(nn.Module):
 
         d = self.num_features
         s = self.num_spherical_features
+
+        Q_i = Q[atom_to_structure] * atom_mask
 
         # empirical factors to make var of equivariant norm more uniform across l
         l_factors = (
@@ -117,7 +122,9 @@ class Lorem(nn.Module):
             )
             * atom_mask[..., None]
         )
+
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
+        nodes_scalar = ChargeConditioning(d)(Q_i, nodes_scalar, atom_mask)
 
         coefficients = masked(
             nn.Dense(num_l * s, use_bias=False), edges_scalar, pair_mask
@@ -166,6 +173,7 @@ class Lorem(nn.Module):
                 )
                 * atom_mask[..., None]
             )
+
             nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
 
             if self.equivariant_message_passing:
@@ -203,6 +211,7 @@ class Lorem(nn.Module):
         if self.lr:
             # -- compute LR potentials --
             scalar_charges = masked(MLP(features=[2 * d, 1]), nodes_scalar, atom_mask)
+
             spherical_charges = e3x.nn.TensorDense(
                 features=1,
                 use_bias=False,
@@ -249,6 +258,7 @@ class Lorem(nn.Module):
         from ase.build import bulk
 
         atoms = bulk("Ar") * [2, 2, 2]
+        atoms.info["total_charge"] = 0.0
 
         return self.atoms_to_batch(atoms)[:-1]
 
@@ -260,6 +270,7 @@ class Lorem(nn.Module):
             batch.sr,
             batch.nopbc,
             batch.pbc,
+            batch.total_charge,
         )
         energies *= sr.atom_mask
 

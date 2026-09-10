@@ -199,22 +199,38 @@ def degree_wise_repeat_last_axis(x, max_degree: int):
 
 @functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
 def spherical_norm(X, max_degree):
-    squared = jax.lax.square(X)
-    trace = degree_wise_trace(squared, max_degree)
-    norm = jnp.sqrt(trace)
-    return norm
+    """Per-degree L2 norm; safe to differentiate twice at any float32 scale."""
+    return jnp.sqrt(degree_wise_trace(jax.lax.square(X), max_degree))
 
 
 @spherical_norm.defjvp
-def spherical_norm_jvp(max_degree, primals, tangents):
-    (x,) = primals
-    (x_dot,) = tangents
-    primal_out = spherical_norm(x, max_degree)
+def _spherical_norm_jvp(max_degree, primals, tangents):
+    (x,), (x_dot,) = primals, tangents
+    tangent_out = degree_wise_trace(x_dot * spherical_unit(x, max_degree), max_degree)
+    return spherical_norm(x, max_degree), tangent_out
 
-    x_hat = x / degree_wise_repeat(jnp.where(primal_out > 0, primal_out, 1), max_degree, -1)
 
-    tangent_out = degree_wise_trace(x_dot * x_hat, max_degree)
-    return primal_out, tangent_out
+@functools.partial(jax.custom_jvp, nondiff_argnums=(1,))
+def spherical_unit(X, max_degree):
+    """Per-degree x/||x||, zero where the norm vanishes."""
+    return X * _spherical_inverse_norm(X, max_degree)
+
+
+@spherical_unit.defjvp
+def _spherical_unit_jvp(max_degree, primals, tangents):
+    # d(x/n) = (v - x_hat (x_hat . v)) / n only ever divides by n, never by n**2,
+    # which is what keeps the second derivative of the norm finite for tiny blocks
+    (x,), (v,) = primals, tangents
+    inverse_norm = _spherical_inverse_norm(x, max_degree)
+    x_hat = x * inverse_norm
+    proj = degree_wise_repeat(degree_wise_trace(x_hat * v, max_degree), max_degree, -1)
+    return x_hat, (v - x_hat * proj) * inverse_norm
+
+
+def _spherical_inverse_norm(X, max_degree):
+    norm = spherical_norm(X, max_degree)
+    inverse = jnp.where(norm > 0, 1.0 / jnp.where(norm > 0, norm, 1.0), 0.0)
+    return degree_wise_repeat(inverse, max_degree, -1)
 
 
 def spherical_norm_last_axis(X, max_degree):
@@ -229,3 +245,21 @@ def spherical_norm_last_axis(X, max_degree):
         in_axes=1,
         out_axes=1,
     )(X)
+
+
+# -- charge conditioning --
+
+
+class ChargeConditioning(nn.Module):
+    # FiLM conditioning of invariant node features on the per-atom charge Q_i
+    features: int
+
+    @nn.compact
+    def __call__(self, Q_i, x, atom_mask):
+        gamma_beta = _masked(
+            MLP(features=[self.features, 2 * self.features]),
+            Q_i[..., None],
+            atom_mask,
+        )
+        gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
+        return (1.0 + gamma) * x + beta  # near-identity at init

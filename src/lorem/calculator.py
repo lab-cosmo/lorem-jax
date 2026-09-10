@@ -102,16 +102,37 @@ class Calculator(BaseCalculator):
             self.results = {}
             self.atoms = atoms.copy()
             self.setup(atoms)
-        elif self.atoms is None or not self._geometry_unchanged(atoms):
-            # Positions and/or cell changed but within skin budget
-            self.results = {}
-            self.atoms = atoms.copy()
+            return
+
+        # Geometry and total_charge may change independently
+        stale = self.atoms is None
+        moved = stale or not self._geometry_unchanged(atoms)
+        recharged = stale or not self._conditioning_unchanged(atoms)
+
+        if not (moved or recharged):
+            return
+
+        self.results = {}
+        self.atoms = atoms.copy()
+        if moved:
             self._update_geometry(atoms)
+        if recharged:
+            self._update_conditioning(atoms)
 
     def _geometry_unchanged(self, atoms):
         return np.array_equal(
             atoms.get_positions(), self.atoms.get_positions()
         ) and np.array_equal(atoms.get_cell()[:], self.atoms.get_cell()[:])
+
+    def _conditioning_unchanged(self, atoms):
+        old_q = self.atoms.info.get("total_charge", 0.0)
+        new_q = atoms.info.get("total_charge", 0.0)
+        return old_q == new_q
+
+    def _update_conditioning(self, atoms):
+        total_charge = np.array(self.batch.total_charge)
+        total_charge[0] = atoms.info.get("total_charge", 0.0)
+        self.batch = self.batch._replace(total_charge=jnp.array(total_charge))
 
     def setup(self, atoms):
         from lorem.batching import to_batch, to_sample
