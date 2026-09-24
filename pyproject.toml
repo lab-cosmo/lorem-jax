@@ -18,10 +18,15 @@ dependencies = [
     "opsis",
     "optax",
 ]
+description = "LOREM: an equivariant long-range machine learning interatomic potential in JAX"
 dynamic = ["version"]
 license = "BSD-3-Clause"
 name = "lorem-jax"
+readme = "README.md"
 requires-python = ">=3.11"
+
+[project.urls]
+Repository = "https://github.com/lab-cosmo/lorem-jax"
 
 [project.scripts]
 lorem-install-ipi-driver = "lorem._install_ipi_driver:install_ipi_driver"
