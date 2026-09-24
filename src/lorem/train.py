@@ -225,9 +225,8 @@ def main():
     from marathon.utils import tree_stack
 
     def get_batcher(valid=False):
-        conf = batcher_config
-        if valid:
-            conf["drop_remainder"] = False
+        # copy: the validation setting must not leak into the training batchers
+        conf = {**batcher_config, "drop_remainder": False} if valid else batcher_config
 
         if not batcher_class:
             return model.to_batch(**conf)
