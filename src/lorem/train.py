@@ -254,7 +254,14 @@ def main():
     batcher_config["properties"] = properties
     comms.talk(f"properties: {list(properties.keys())}")
 
-    to_sample = model.to_sample(cutoff=cutoff, keys=keys, properties=properties)
+    inputs = list(getattr(model, "inputs", ()))
+    batcher_config["inputs"] = inputs
+    if inputs:
+        comms.talk(f"inputs: {list(inputs)}")
+
+    to_sample = model.to_sample(
+        cutoff=cutoff, keys=keys, inputs=inputs, properties=properties
+    )
 
     n_train = len(source_train)
     n_valid = len(source_valid)

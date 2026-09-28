@@ -8,6 +8,7 @@ from ase.calculators.calculator import (
     BaseCalculator,
     PropertyNotImplementedError,
 )
+from marathon.data.properties import DEFAULT_PROPERTIES
 from marathon.emit.checkpoint import read_msgpack
 from marathon.io import from_dict, read_yaml
 
@@ -36,10 +37,14 @@ class Calculator(BaseCalculator):
         add_offset=True,
         double_precision=False,
         skin=0.25,
+        inputs=(),
+        properties=None,
     ):
         self.params = params
         self.cutoff = cutoff
         self.skin = skin
+        self.inputs = tuple(inputs)
+        self.properties = DEFAULT_PROPERTIES if properties is None else properties
         self.add_offset = add_offset
         self.double_precision = double_precision
 
@@ -59,6 +64,7 @@ class Calculator(BaseCalculator):
 
         self.atoms = None
         self.batch = None
+        self._input_values = None
         self.results = {}
         if atoms is not None:
             self.setup(atoms)
@@ -72,6 +78,7 @@ class Calculator(BaseCalculator):
             species_weights = {}
             kwargs.setdefault("add_offset", False)
         kwargs.setdefault("bec", _model_predicts_bec(model))
+        kwargs.setdefault("inputs", getattr(model, "inputs", ()))
         return cls(model.predict, species_weights, params, model.cutoff, **kwargs)
 
     @classmethod
@@ -94,11 +101,13 @@ class Calculator(BaseCalculator):
         params = read_msgpack(folder / "model/model.msgpack")
 
         kwargs.setdefault("bec", _model_predicts_bec(model))
+        kwargs.setdefault("inputs", getattr(model, "inputs", ()))
+        kwargs.setdefault("properties", _checkpoint_properties(folder))
         return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
-        if self._nl_cache.needs_update(atoms):
-            # Structural change or combined displacement beyond skin
+        if self._nl_cache.needs_update(atoms) or self._inputs_changed(atoms):
+            # Structural change, displacement beyond skin, or new model inputs
             self.results = {}
             self.atoms = atoms.copy()
             self.setup(atoms)
@@ -107,6 +116,22 @@ class Calculator(BaseCalculator):
             self.results = {}
             self.atoms = atoms.copy()
             self._update_geometry(atoms)
+
+    def _inputs_changed(self, atoms):
+        if not self.inputs:
+            return False
+        values = self._read_inputs(atoms)
+        return self._input_values is None or any(
+            not np.array_equal(values[k], self._input_values[k], equal_nan=True)
+            for k in self.inputs
+        )
+
+    def _read_inputs(self, atoms):
+        from marathon.data.sample import read_properties
+
+        return read_properties(
+            atoms, self.inputs, float_dtype=np.float32, properties=self.properties
+        )
 
     def _geometry_unchanged(self, atoms):
         return np.array_equal(
@@ -126,14 +151,15 @@ class Calculator(BaseCalculator):
         sample = to_sample(
             atoms,
             nl_cutoff,
+            keys=(),
+            inputs=self.inputs,
             lr_wavelength=lr_wavelength,
             smearing=smearing,
-            energy=False,
-            forces=False,
-            stress=False,
+            properties=self.properties,
         )
-        batch = to_batch([sample], [])
+        batch = to_batch([sample], [], inputs=self.inputs, properties=self.properties)
         self.batch = jax.tree.map(lambda x: jnp.array(x), batch)
+        self._input_values = self._read_inputs(atoms)
 
         max_cell_shift = int(np.abs(np.array(self.batch.sr.cell_shifts)).max())
         self._nl_cache.save_reference(atoms, max_cell_shift=max_cell_shift)
@@ -237,6 +263,18 @@ class Calculator(BaseCalculator):
     def get_potential_energy(self, atoms=None, force_consistent=True):
         # force_consistent is ignored; we are always consistent
         return self.get_property(name="energy", atoms=atoms)
+
+
+def _checkpoint_properties(folder):
+    # the training run records the dataset's properties in the checkpoint config
+    config = folder / "config.yaml"
+    if not config.is_file():
+        return None
+    properties = read_yaml(config).get("training_pipeline", {}).get("batcher", {})
+    properties = properties.get("properties")
+    if properties is None:
+        return None
+    return {k: {**v, "shape": tuple(v["shape"])} for k, v in properties.items()}
 
 
 def _model_predicts_bec(model):

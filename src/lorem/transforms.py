@@ -1,46 +1,24 @@
 from dataclasses import dataclass
+from functools import partial
 
 from marathon.data.properties import DEFAULT_PROPERTIES
-from marathon.grain import (
-    MapTransform,
-    Record,
-)
+from marathon.grain import Record
+from marathon.grain import ToSample as MarathonToSample
+
+from lorem.batching import to_structure
 
 NO_PADDING = ["k", "atoms_pbc", "pbc", "pairs_nonpbc"]
 
 
-@dataclass(frozen=True)
-class ToSample(MapTransform):
-    cutoff: float
-    keys: tuple | None = None
-    properties: dict | None = None
-    energy: bool = True
-    forces: bool = True
-    stress: bool = False
-    lr_wavelength: float | None = None
-    smearing: float | None = None
-
-    def map(self, atoms):
-        from lorem.batching import to_sample
-
-        properties = self.properties if self.properties is not None else DEFAULT_PROPERTIES
-        return to_sample(
-            atoms,
-            self.cutoff,
-            keys=self.keys,
-            energy=self.energy,
-            forces=self.forces,
-            stress=self.stress,
-            lr_wavelength=self.lr_wavelength,
-            smearing=self.smearing,
-            properties=properties,
-        )
+# marathon's ToSample with the jax-pme geometry builder; labels stay float64 for stats
+ToSample = partial(MarathonToSample, structure_fn=to_structure, float_dtype="float64")
 
 
 @dataclass(frozen=True)
 class ToBatch:
     batch_size: int
     keys: tuple = ("energy", "forces")
+    inputs: tuple = ()
     properties: dict | None = None
     drop_remainder: bool = True
     size_strategy: str = "powers_of_4"
@@ -129,6 +107,7 @@ class ToBatch:
         return to_batch(
             records_to_batch,
             self.keys,
+            inputs=self.inputs,
             batch_size=self.batch_size,
             strategies={
                 "default": self.size_strategy,
