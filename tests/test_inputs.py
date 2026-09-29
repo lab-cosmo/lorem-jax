@@ -96,7 +96,7 @@ def test_inputs_through_grain_transforms():
 @pytest.mark.parametrize("cls", [Lorem, LoremBEC])
 def test_model_declares_inputs(cls):
     model = cls(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
-    assert model.inputs == []
+    assert model.inputs == ()
     assert len(model.dummy_inputs()) == 4
 
     model = cls(

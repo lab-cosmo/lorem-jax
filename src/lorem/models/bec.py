@@ -1,8 +1,6 @@
 import jax
 import jax.numpy as jnp
 
-from dataclasses import field
-
 import e3x
 import flax.linen as nn
 from jaxpme.batched_mixed import Ewald
@@ -35,7 +33,12 @@ class LoremBEC(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = False
     initialize_node_features: bool = False
-    inputs: list = field(default_factory=list)  # properties read into batch.inputs
+    inputs: tuple = ()  # properties read into batch.inputs
+
+    def __post_init__(self):
+        # yaml configs hand us a list; keep the module immutable and to_dict stable
+        object.__setattr__(self, "inputs", tuple(self.inputs))
+        super().__post_init__()
 
     @property
     def to_batch(self):
