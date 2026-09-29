@@ -35,11 +35,6 @@ class Lorem(nn.Module):
     initialize_node_features: bool = True
     inputs: tuple = ()  # properties read into batch.inputs
 
-    def __post_init__(self):
-        # yaml configs hand us a list; keep the module immutable and to_dict stable
-        object.__setattr__(self, "inputs", tuple(self.inputs))
-        super().__post_init__()
-
     @property
     def to_batch(self):
         return ToBatch
