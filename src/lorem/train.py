@@ -570,7 +570,7 @@ def main():
             # try to catch the most obvious error: editing the model config between restarts
             from marathon.io import to_dict
 
-            assert _yaml_view(to_dict(new_model)) == _yaml_view(to_dict(model))
+            assert to_dict(new_model) == to_dict(model)
 
             iter_train.set_state(state["iter_train"])
     else:
@@ -1035,13 +1035,6 @@ def main():
             shutil.rmtree(f)
 
     comms.state("done!")
-
-
-def _yaml_view(dct):
-    # to_dict keeps tuples, the yaml round trip turns them into lists; compare as yaml
-    import yaml
-
-    return yaml.safe_load(yaml.safe_dump(dct))
 
 
 if __name__ == "__main__":
