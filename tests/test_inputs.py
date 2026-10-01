@@ -97,19 +97,20 @@ def test_inputs_through_grain_transforms():
 def test_model_declares_inputs(cls):
     model = cls(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     assert model.inputs == ()
-    assert len(model.dummy_inputs()) == 4
+    assert model.dummy_inputs()[-1] == {}
 
     model = cls(
         cutoff=5.0,
         num_features=8,
         num_spherical_features=2,
         num_radial=4,
-        inputs=["total_charge"],
+        charge_conditioning=True,
     )
-    # init needs no inputs: atoms_to_batch is geometry only, inputs are wired up
-    # by train.py and the Calculator, which know the dataset's properties
+    assert model.inputs == ("total_charge",)
+    # atoms_to_batch is geometry only, inputs are wired up by train.py and the
+    # Calculator, which know the dataset's properties; dummy_inputs fills in zeros
     assert model.atoms_to_batch(bulk("Ar") * [2, 2, 2]).inputs == {}
-    assert len(model.dummy_inputs()) == 4
+    assert set(model.dummy_inputs()[-1]) == {"total_charge", "total_charge_mask"}
 
 
 def test_calculator_reads_inputs_and_rebuilds_on_change():
@@ -118,9 +119,8 @@ def test_calculator_reads_inputs_and_rebuilds_on_change():
         num_features=8,
         num_spherical_features=2,
         num_radial=4,
-        inputs=["total_charge"],
+        charge_conditioning=True,
     )
-    # the model does not consume inputs yet, but the batch must carry them
     calc = Calculator.from_model(model, properties=PROPERTIES)
     assert calc.inputs == ("total_charge",)
 
@@ -130,6 +130,7 @@ def test_calculator_reads_inputs_and_rebuilds_on_change():
     assert float(calc.batch.inputs["total_charge"][0]) == 1.0
     assert isinstance(calc.batch.inputs["total_charge"], jnp.ndarray)
     batch = calc.batch
+    e_plus = calc.results["energy"]
 
     # same geometry, same charge: no rebuild
     calc.calculate(atoms)
@@ -139,7 +140,12 @@ def test_calculator_reads_inputs_and_rebuilds_on_change():
     atoms.info["total_charge"] = -1.0
     calc.calculate(atoms)
     assert float(calc.batch.inputs["total_charge"][0]) == -1.0
-    assert calc.results["energy"] is not None
+    assert not np.allclose(calc.results["energy"], e_plus, atol=1e-6)
+
+    # matches a fresh calculator at the new charge
+    fresh = Calculator.from_model(model, params=calc.params, properties=PROPERTIES)
+    fresh.calculate(atoms)
+    np.testing.assert_allclose(fresh.results["energy"], calc.results["energy"], atol=1e-6)
 
 
 def test_calculator_without_inputs_ignores_atoms_info():

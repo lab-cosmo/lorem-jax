@@ -7,6 +7,7 @@ from jaxpme.batched_mixed import Ewald
 
 from lorem.models.backbone import (
     MLP,
+    ChargeConditioning,
     Initial,
     RadialCoefficients,
     Update,
@@ -33,7 +34,12 @@ class LoremBEC(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = False
     initialize_node_features: bool = False
-    inputs: tuple = ()  # properties read into batch.inputs
+    charge_conditioning: bool = False
+
+    @property
+    def inputs(self):
+        # properties read into batch.inputs
+        return ("total_charge",) if self.charge_conditioning else ()
 
     @property
     def to_batch(self):
@@ -50,6 +56,7 @@ class LoremBEC(nn.Module):
         sr,
         nopbc,
         pbc,
+        inputs,
     ):
         R = sr.positions
         i = sr.centers
@@ -119,6 +126,10 @@ class LoremBEC(nn.Module):
             * atom_mask[..., None]
         )
         nodes_scalar = Update(d)(nodes_scalar, updates, atom_mask)
+
+        if self.charge_conditioning:
+            Q_i = inputs["total_charge"][sr.atom_to_structure]
+            nodes_scalar = ChargeConditioning(d)(Q_i, nodes_scalar, atom_mask)
 
         coefficients = masked(
             nn.Dense(num_l * s, use_bias=False), edges_scalar, pair_mask
@@ -257,8 +268,14 @@ class LoremBEC(nn.Module):
         from ase.build import bulk
 
         atoms = bulk("Ar") * [2, 2, 2]
+        batch = self.atoms_to_batch(atoms)
 
-        return self.atoms_to_batch(atoms)[:4]
+        inputs = {}
+        if self.charge_conditioning:
+            inputs["total_charge"] = jnp.zeros_like(batch.sr.structure_mask, dtype=float)
+            inputs["total_charge_mask"] = batch.sr.structure_mask
+
+        return batch._replace(inputs=inputs)[:5]
 
     def energy(self, params, batch):
         sr = batch[1]
@@ -268,6 +285,7 @@ class LoremBEC(nn.Module):
             batch.sr,
             batch.nopbc,
             batch.pbc,
+            batch.inputs,
         )
         energies *= sr.atom_mask
         apt *= sr.atom_mask[:, None, None]
