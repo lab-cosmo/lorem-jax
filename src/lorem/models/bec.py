@@ -33,6 +33,7 @@ class LoremBEC(nn.Module):
     num_message_passing: int = 0
     equivariant_message_passing: bool = False
     initialize_node_features: bool = False
+    inputs: tuple = ()  # properties read into batch.inputs
 
     @property
     def to_batch(self):
@@ -247,7 +248,7 @@ class LoremBEC(nn.Module):
     def atoms_to_batch(self, atoms):
         from lorem.batching import to_batch, to_sample
 
-        sample = to_sample(atoms, self.cutoff, energy=False, forces=False, stress=False)
+        sample = to_sample(atoms, self.cutoff, keys=())
         batch = to_batch([sample], [])
 
         return jax.tree.map(lambda x: jnp.array(x), batch)
@@ -257,7 +258,7 @@ class LoremBEC(nn.Module):
 
         atoms = bulk("Ar") * [2, 2, 2]
 
-        return self.atoms_to_batch(atoms)[:-1]
+        return self.atoms_to_batch(atoms)[:4]
 
     def energy(self, params, batch):
         sr = batch[1]

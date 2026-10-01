@@ -1,12 +1,13 @@
 import numpy as np
 
 from collections import namedtuple
+from functools import partial
 
 from jaxpme.batched_mixed.batching import get_batch as jaxpme_batcher
 from jaxpme.batched_mixed.batching import prepare as jaxpme_prepare
-from marathon.data.batching import batch_labels
+from marathon.data.batching import batch_labels, batch_properties
 from marathon.data.properties import DEFAULT_PROPERTIES
-from marathon.data.sample import to_labels
+from marathon.data.sample import to_sample as marathon_to_sample
 from marathon.utils import next_size
 
 Batch = namedtuple(
@@ -16,16 +17,8 @@ Batch = namedtuple(
         "sr",
         "nopbc",
         "pbc",
-        "labels",
-    ),
-)
-
-
-Sample = namedtuple(
-    "Sample",
-    (
-        "structure",
-        "labels",
+        "inputs",  # what the model reads (+ masks)
+        "labels",  # what the model is scored against (+ masks)
     ),
 )
 
@@ -33,6 +26,7 @@ Sample = namedtuple(
 def to_batch(
     samples,
     keys,
+    inputs=(),
     batch_size=None,
     strategies={"default": "powers_of_2"},
     shapes=None,
@@ -83,31 +77,37 @@ def to_batch(
     atomic_numbers[: len(Z)] = Z
 
     labels = batch_labels(labels, num_structures, num_atoms, keys, properties=properties)
+    inputs = batch_properties(
+        structures,
+        inputs,
+        num_structures,
+        num_atoms,
+        float_dtype=sr.positions.dtype,
+        properties=properties,
+    )
 
-    return Batch(atomic_numbers, sr, nopbc, pbc, labels)
+    return Batch(atomic_numbers, sr, nopbc, pbc, inputs, labels)
 
 
 def to_sample(
     atoms,
     cutoff,
-    keys=None,
-    energy=True,
-    forces=True,
-    stress=False,
+    keys=("energy", "forces"),
+    inputs=(),
     lr_wavelength=None,
     smearing=None,
     properties=DEFAULT_PROPERTIES,
 ):
-    structure = jaxpme_prepare(
-        atoms, cutoff, lr_wavelength=lr_wavelength, smearing=smearing, dtype=np.float32
-    )
-    labels = to_labels(
+    return marathon_to_sample(
         atoms,
+        cutoff,
         keys=keys,
-        energy=energy,
-        forces=forces,
-        stress=stress,
+        inputs=inputs,
         properties=properties,
+        structure_fn=partial(to_structure, lr_wavelength=lr_wavelength, smearing=smearing),
     )
 
-    return Sample(structure, labels)
+
+def to_structure(atoms, cutoff, float_dtype=None, int_dtype=None, **kwargs):
+    # jax-pme structures are float32 regardless of the dtype used for labels and inputs
+    return jaxpme_prepare(atoms, cutoff, dtype=np.float32, **kwargs)
