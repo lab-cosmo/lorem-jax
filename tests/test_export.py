@@ -4,6 +4,7 @@ import jax
 import importlib.util
 from pathlib import Path
 
+import yaml
 from flax.traverse_util import flatten_dict
 from marathon.io import to_dict, write_msgpack, write_yaml
 
@@ -34,9 +35,10 @@ def test_export_roundtrip(tmp_path):
     expected = flatten_dict(params["params"], sep="/")
 
     assert exported.keys() == expected.keys()
+    assert "Initial_0/ChemicalEmbedding_0/Embed_0/embedding" in exported
     for key, value in expected.items():
         np.testing.assert_array_equal(exported[key], value)
 
     for name in ("model.yaml", "baseline.yaml"):
         assert (out / name).read_text() == (checkpoint / "model" / name).read_text()
-    assert (out / "export.yaml").read_text() == f"format: {export.FORMAT}\n"
+    assert yaml.safe_load((out / "export.yaml").read_text()) == {"format": 1}
