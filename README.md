@@ -173,6 +173,16 @@ lorem-install-ipi-driver
 
 This copies the LOREM driver into the i-PI `pes` directory. You can rerun `lorem-install-ipi-driver` anytime (it is idempotent) if you switch environments or reinstall i-PI.
 
+## Exporting checkpoints
+
+To use a trained model outside JAX (e.g. the torch port in [metatrain](https://github.com/metatensor/metatrain)), export a checkpoint with the standalone script in `scripts/`:
+
+```bash
+uv run scripts/export.py run/checkpoints/R2_E+F exported/
+```
+
+This writes `params.npz` (flax parameters keyed by `/`-joined paths, e.g. `Initial_0/ChemicalEmbedding_0/Embed_0/embedding`), the checkpoint's `model.yaml` and `baseline.yaml`, and `export.yaml` with the export format version. Parameters are not reshaped for any particular consumer. Ewald convergence settings are not part of the model and are not exported.
+
 ## Development
 
 Format and lint:
