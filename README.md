@@ -175,7 +175,7 @@ This copies the LOREM driver into the i-PI `pes` directory. You can rerun `lorem
 
 ## Exporting checkpoints
 
-To use a trained model without lorem-jax (e.g. with the torch port in [metatrain](https://github.com/metatensor/metatrain)), export a checkpoint with the script in `scripts/`. It needs JAX and flax, but neither lorem-jax nor marathon:
+To use a trained model outside JAX (e.g. with the torch port in [metatrain](https://github.com/metatensor/metatrain)), export a checkpoint with the script in `scripts/`. The script itself needs JAX and flax, but neither lorem-jax nor marathon:
 
 ```bash
 uv run path/to/lorem-jax/scripts/export.py run/checkpoints/R2_E+F exported/

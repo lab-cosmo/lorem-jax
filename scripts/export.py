@@ -2,9 +2,9 @@
 # requires-python = ">=3.11"
 # dependencies = ["flax", "numpy"]
 # ///
-"""Export a lorem-jax checkpoint for consumers that cannot import lorem-jax.
+"""Export a lorem-jax checkpoint for consumers outside JAX.
 
-Needs flax (and so JAX), but neither lorem-jax nor marathon.
+The script itself needs flax (and so JAX), but neither lorem-jax nor marathon.
 
 Usage: uv run scripts/export.py CHECKPOINT OUT
 
