@@ -175,10 +175,10 @@ This copies the LOREM driver into the i-PI `pes` directory. You can rerun `lorem
 
 ## Exporting checkpoints
 
-To use a trained model outside JAX (e.g. the torch port in [metatrain](https://github.com/metatensor/metatrain)), export a checkpoint with the standalone script in `scripts/`:
+To use a trained model outside JAX (e.g. with the torch port in [metatrain](https://github.com/metatensor/metatrain)), export a checkpoint with the script in `scripts/`. The script itself needs JAX and flax, but neither lorem-jax nor marathon:
 
 ```bash
-uv run scripts/export.py run/checkpoints/R2_E+F exported/
+uv run path/to/lorem-jax/scripts/export.py run/checkpoints/R2_E+F exported/
 ```
 
 This writes `params.npz` (flax parameters keyed by `/`-joined paths, e.g. `Initial_0/ChemicalEmbedding_0/Embed_0/embedding`), the checkpoint's `model.yaml` and `baseline.yaml`, and `export.yaml` with the export format version. Parameters are not reshaped for any particular consumer. Ewald convergence settings are not part of the model and are not exported.

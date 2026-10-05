@@ -4,6 +4,8 @@
 # ///
 """Export a lorem-jax checkpoint for consumers outside JAX.
 
+The script itself needs flax (and so JAX), but neither lorem-jax nor marathon.
+
 Usage: uv run scripts/export.py CHECKPOINT OUT
 
 Writes to OUT:
@@ -27,14 +29,17 @@ def export(checkpoint, out):
     from flax.serialization import msgpack_restore
 
     model = Path(checkpoint) / "model"
+    params = msgpack_restore((model / "model.msgpack").read_bytes())
+    yamls = [model / name for name in ("model.yaml", "baseline.yaml")]
+    for path in yamls:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-
-    params = msgpack_restore((model / "model.msgpack").read_bytes())
     np.savez(out / "params.npz", **flatten(params["params"]))
-
-    shutil.copy(model / "model.yaml", out / "model.yaml")
-    shutil.copy(model / "baseline.yaml", out / "baseline.yaml")
+    for path in yamls:
+        shutil.copy(path, out / path.name)
     (out / "export.yaml").write_text(f"format: {FORMAT}\n")
 
 
