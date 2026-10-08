@@ -7,6 +7,14 @@ from lorem.models.bec import LoremBEC
 from lorem.models.mlip import Lorem
 
 
+def rattled_bulk():
+    # Rattle for non-zero forces: on a perfect crystal forces vanish by
+    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
+    atoms = bulk("Ar") * [2, 2, 2]
+    atoms.rattle(0.1, seed=42)
+    return atoms
+
+
 def test_calculator_energy_forces():
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
     calc = Calculator.from_model(model)
@@ -89,7 +97,7 @@ def test_calculator_skin_configurable():
 def test_calculator_skin_results_match_no_skin():
     """Calculator with skin gives same results as skin=0 on static structure."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
-    atoms = bulk("Ar") * [2, 2, 2]
+    atoms = rattled_bulk()
 
     calc_skin = Calculator.from_model(model, skin=0.25)
     calc_skin.calculate(atoms)
@@ -112,7 +120,7 @@ def test_calculator_skin_results_match_no_skin():
 def test_calculator_skin_reuses_neighborlist():
     """Small displacement reuses cached neighbor list, results stay correct."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
-    atoms = bulk("Ar") * [2, 2, 2]
+    atoms = rattled_bulk()
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
@@ -202,10 +210,7 @@ def test_calculator_cell_change_within_skin():
     └──────────┘              └───────────┘
     """
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
-    atoms = bulk("Ar") * [2, 2, 2]
-    # Rattle for non-zero forces: on a perfect crystal forces vanish by
-    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
-    atoms.rattle(0.1, seed=42)
+    atoms = rattled_bulk()
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
@@ -285,10 +290,7 @@ def test_calculator_large_cell_change_triggers_rebuild():
 def test_calculator_combined_position_and_cell_change():
     """Both position and cell change within skin — correct results."""
     model = Lorem(cutoff=5.0, num_features=8, num_spherical_features=2, num_radial=4)
-    atoms = bulk("Ar") * [2, 2, 2]
-    # Rattle for non-zero forces: on a perfect crystal forces vanish by
-    # symmetry, leaving only float32 noise sensitive to neighbor-list order.
-    atoms.rattle(0.1, seed=42)
+    atoms = rattled_bulk()
 
     calc = Calculator.from_model(model, skin=0.5)
     calc.calculate(atoms)
