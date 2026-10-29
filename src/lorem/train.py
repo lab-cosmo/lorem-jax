@@ -32,6 +32,10 @@ def main():
     else:
         batcher_class = None
 
+    # long-range kernel of the training pipeline, see lorem.longrange; it has
+    # no parameters, so inference is free to use a different one
+    lr_kernel_config = settings.pop("lr_kernel", None)
+
     should_filter_mixedpbc = settings.pop("filter_mixed_pbc", False)
     should_filter_above_num_atoms = settings.pop("filter_above_num_atoms", False)
 
@@ -157,6 +161,12 @@ def main():
     model = from_dict(model_config["model"])
     cutoff = model.cutoff
 
+    if lr_kernel_config is not None:
+        lr_kernel = from_dict(lr_kernel_config, default_namespace="lorem.longrange")
+        comms.talk(f"long-range kernel: {lr_kernel}")
+    else:
+        lr_kernel = None
+
     params = model.init(init_key, *model.dummy_inputs())
 
     if print_model_summary:
@@ -229,8 +239,8 @@ def main():
         conf = {**batcher_config, "drop_remainder": False} if valid else batcher_config
 
         if not batcher_class:
-            return model.to_batch(**conf)
-        return batcher_class(**conf)
+            return model.to_batch(**conf, lr_kernel=lr_kernel)
+        return batcher_class(**conf, lr_kernel=lr_kernel)
 
     batcher = get_batcher()  # only used for its class methods
 
@@ -260,7 +270,11 @@ def main():
         comms.talk(f"inputs: {list(inputs)}")
 
     to_sample = model.to_sample(
-        cutoff=cutoff, keys=keys, inputs=inputs, properties=properties
+        cutoff=cutoff,
+        keys=keys,
+        inputs=inputs,
+        properties=properties,
+        lr_kernel=lr_kernel,
     )
 
     n_train = len(source_train)
@@ -588,6 +602,7 @@ def main():
 
     training_pipeline = {
         "batcher": batcher_config,
+        "lr_kernel": lr_kernel_config,
         "use_rotational_augmentation": use_rotational_augmentation,
         "filter_mixed_pbc": should_filter_mixedpbc,
         "filter_above_num_atoms": should_filter_above_num_atoms,

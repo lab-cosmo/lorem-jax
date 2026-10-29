@@ -103,6 +103,7 @@ use_wandb: True
 | `test_datasets` | `{}` | Extra test datasets: `{name: [path, save_predictions]}` |
 | `batcher.batch_size` | *required* | Samples per batch |
 | `batcher.size_strategy` | `powers_of_4` | Padding strategy for batch dimensions |
+| `lr_kernel` | `Ewald` at the model cutoff | Long-range kernel for training, see [Long-range kernels](#long-range-kernels) |
 | `loss_weights` | `{"energy": 0.5, "forces": 0.5}` | Per-target loss weights |
 | `scale_by_variance` | `False` | Scale loss weights by validation set variance |
 | `optimizer` | `adam` | Optimizer (`adam`, `muon`, or any optax optimizer) |
@@ -162,6 +163,26 @@ See `examples/train-mlp/` and `examples/train-bec/` for complete examples includ
 | `num_radial` | 32 | Number of radial basis functions |
 | `num_message_passing` | 0 | Number of short-range message passing steps |
 | `lr` | True | Enable long-range (Ewald) interaction |
+
+### Long-range kernels
+
+The long-range part is computed by a kernel from `lorem.longrange`. A kernel has no parameters, only convergence settings, so it is not part of the model: a trained model runs with any kernel, which changes speed and convergence but not the model.
+
+| Kernel | Description |
+|---|---|
+| `Ewald()` | Default. Batched Ewald (`jaxpme.batched_mixed`) with the real-space cutoff at the model cutoff |
+| `Ewald(num_k=...)` | Same backend, with a fixed k-grid size; the real-space cutoff and smearing follow from it, independent of the model cutoff |
+| `TiledEwald(num_k=...)` | Tile-dispatched batched Ewald (`jaxpme.batched_tiled`), for training on heterogeneous batches |
+
+Both take `cutoff=` to override the real-space cutoff. For training, set the kernel in `settings.yaml`:
+
+```yaml
+lr_kernel:
+  TiledEwald:
+    num_k: 1000
+```
+
+For inference, pass it to the calculator, e.g. `Calculator.from_checkpoint(folder, lr_kernel=Ewald(num_k=1000))`. The calculator uses `Ewald()` unless told otherwise, whatever the model was trained with.
 
 ## Installing the i-PI driver
 

@@ -3,8 +3,8 @@ import jax.numpy as jnp
 
 import e3x
 import flax.linen as nn
-from jaxpme.batched_mixed import Ewald
 
+from lorem.longrange import potentials as lr_potentials
 from lorem.models.backbone import (
     MLP,
     Initial,
@@ -47,17 +47,17 @@ class Lorem(nn.Module):
     def __call__(
         self,
         Z_i,
+        geometry,
         sr,
-        nopbc,
-        pbc,
+        lr,
     ):
-        R = sr.positions
+        R = geometry.positions
         i = sr.centers
         j = sr.others
-        cell = sr.cell
+        cell = geometry.cell
         cell_shifts = sr.cell_shifts
         pair_mask = sr.pair_mask
-        atom_mask = sr.atom_mask
+        atom_mask = geometry.atom_mask
 
         R_ij = (
             R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[sr.pair_to_structure])
@@ -212,9 +212,8 @@ class Lorem(nn.Module):
             )(nodes_spherical).reshape(num_atoms, -1)
             charges = jnp.concatenate([scalar_charges, spherical_charges], axis=-1)
 
-            calculator = Ewald()
             potentials = jax.vmap(
-                lambda q: calculator.potentials(q, sr, nopbc, pbc),
+                lambda q: lr_potentials(q, geometry, lr),
                 in_axes=-1,
                 out_axes=-1,
             )(charges)
@@ -254,20 +253,20 @@ class Lorem(nn.Module):
         return self.atoms_to_batch(atoms)[:4]
 
     def energy(self, params, batch):
-        sr = batch[1]
+        geometry = batch.geometry
         energies = self.apply(
             params,
             batch.atomic_numbers,
+            batch.geometry,
             batch.sr,
-            batch.nopbc,
-            batch.pbc,
+            batch.lr,
         )
-        energies *= sr.atom_mask
+        energies *= geometry.atom_mask
 
         return jnp.sum(energies), energies
 
     def predict(self, params, batch, stress=False):
-        sr = batch[1]
+        geometry = batch.geometry
 
         energy_and_derivatives_fn = jax.value_and_grad(
             self.energy, allow_int=True, has_aux=True, argnums=1
@@ -275,11 +274,13 @@ class Lorem(nn.Module):
         batch_energy_and_atom_energies, grads = energy_and_derivatives_fn(params, batch)
         _, energies = batch_energy_and_atom_energies
 
-        grads = grads.sr
+        grads = grads.geometry
 
         energy = (
-            jax.ops.segment_sum(energies, sr.atom_to_structure, sr.cell.shape[0])
-            * sr.structure_mask
+            jax.ops.segment_sum(
+                energies, geometry.atom_to_structure, geometry.cell.shape[0]
+            )
+            * geometry.structure_mask
         )
 
         forces = -grads.positions
@@ -289,12 +290,12 @@ class Lorem(nn.Module):
         if stress:
             stress = (
                 jax.ops.segment_sum(
-                    jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
-                    sr.atom_to_structure,
-                    num_segments=sr.cell.shape[0],
+                    jnp.einsum("ia,ib->iab", geometry.positions, grads.positions),
+                    geometry.atom_to_structure,
+                    num_segments=geometry.cell.shape[0],
                 )
-                + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
-            ) * sr.structure_mask[:, None, None]
+                + jnp.einsum("sAa,sAb->sab", geometry.cell, grads.cell)
+            ) * geometry.structure_mask[:, None, None]
             results["stress"] = stress
 
         return results
