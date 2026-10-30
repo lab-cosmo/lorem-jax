@@ -1,0 +1,393 @@
+"""Long-range kernels: jax-pme Ewald backends behind one interface.
+
+A batch keeps the geometry shared by the short-range and long-range parts
+(``batch.geometry``) apart from the inputs private to the long-range kernel
+(``batch.lr``). A kernel has no parameters, only configuration, so a trained
+model runs with any of them: the choice changes convergence and speed, not
+the model.
+
+Host side, a kernel prepares one structure (``prepare``), declares its batch
+axes (``axes``: how each adds up over samples, plus the padding every batch
+needs), reports what one sample adds to them (``sample_shapes``) and collates
+prepared structures into the atom and structure slots that
+``lorem.batching.to_batch`` fixes (``batch``). On device, ``potentials``
+rebuilds the jax-pme batch from the shared geometry and the kernel's inputs,
+picking the backend from the type of the inputs.
+"""
+
+import numpy as np
+
+from collections import namedtuple
+from dataclasses import dataclass
+
+from jaxpme import batched_mixed, batched_tiled
+from jaxpme.batched_mixed.batching import Batch as JaxpmeBatch
+
+# real-space Ewald pairs (indexing the shared atom/structure slots), per-structure
+# smearing and k-space cell, and the backend's non-periodic and periodic inputs
+_FIELDS = (
+    "centers",
+    "others",
+    "cell_shifts",
+    "pair_mask",
+    "pair_to_structure",
+    "smearing",
+    "effective_cell",
+    "nopbc",
+    "pbc",
+)
+EwaldInputs = namedtuple("EwaldInputs", _FIELDS)
+TiledEwaldInputs = namedtuple("TiledEwaldInputs", _FIELDS)
+
+# shared arrays of jax-pme's batch, see lorem.batching.Geometry
+_SHARED_FIELDS = (
+    "positions",
+    "cell",
+    "pbc",
+    "atom_mask",
+    "structure_mask",
+    "atom_to_structure",
+)
+
+_CALCULATORS = {
+    EwaldInputs: batched_mixed.Ewald,
+    TiledEwaldInputs: batched_tiled.Ewald,
+}
+
+
+@dataclass(frozen=True)
+class Ewald:
+    """Batched Ewald summation (``jaxpme.batched_mixed``).
+
+    The default kernel. With ``num_k``, the k-grid has a fixed size and the
+    real-space cutoff and smearing follow from it, independent of the model
+    cutoff. Otherwise they follow from ``cutoff``, or from the model cutoff if
+    that is not set either.
+    """
+
+    num_k: int | None = None
+    cutoff: float | None = None
+
+    # every periodic structure is padded to the largest one, and to the largest k-grid
+    axes = {
+        "lr_pairs": ("sum", 1),
+        "pairs_nonpbc": ("sum", 0),
+        "pbc": ("sum", 0),
+        "atoms_pbc": ("max", 0),
+        "k": ("max", 0),
+    }
+
+    def __post_init__(self):
+        if self.num_k is not None and self.cutoff is not None:
+            # the smearing follows num_k, so a smaller cutoff would silently
+            # under-converge the real-space sum
+            raise ValueError("Ewald takes one of num_k or cutoff, not both")
+
+    @property
+    def strategies(self):
+        # with num_k, the k-grid size is known in advance
+        return {"k": "multiples", "lr_pairs": "multiples"} if self.num_k else {}
+
+    def prepare(self, atoms, cutoff, skin=0.0):
+        if self.num_k is None and self.cutoff is None:
+            return _prepare(atoms, cutoff, None, skin)
+        return _prepare(atoms, self.cutoff, self.num_k, skin)
+
+    def sample_shapes(self, structure):
+        shapes = _sample_shapes(structure)
+        shapes["atoms_pbc"] = len(structure["positions"]) if shapes["pbc"] else 0
+        return shapes
+
+    def round(self, axis, size):
+        return size
+
+    def validate(self, shapes):
+        pass
+
+    def array_sizes(self, shapes):
+        return {
+            "k": shapes["pbc"] * shapes["k"],
+            "atoms_pbc": shapes["pbc"] * shapes["atoms_pbc"],
+        }
+
+    def batch(self, structures, geometry, shapes):
+        from jaxpme.batched_mixed.batching import get_batch
+
+        return _collate(
+            EwaldInputs,
+            geometry,
+            get_batch(structures, **_sizes(geometry, shapes)),
+        )
+
+    def info(self, inputs):
+        pbc = inputs.pbc
+        real = {
+            "atoms_pbc": pbc.atom_mask.sum(),
+            "pbc": pbc.structure_mask.sum(),
+            "k": ((pbc.k_grid != 0).any(axis=-1)).sum(),
+        }
+        total = {
+            "atoms_pbc": pbc.atom_mask.size,
+            "pbc": pbc.structure_mask.shape[0],
+            "k": pbc.k_grid.shape[0] * pbc.k_grid.shape[1],
+        }
+        shape = {
+            "atoms_pbc": pbc.atom_mask.shape[1],
+            "pbc": pbc.structure_mask.shape[0],
+            "k": pbc.k_grid.shape[1],
+        }
+        return _merge_info(_pairs_info(inputs), (real, total, shape))
+
+
+@dataclass(frozen=True)
+class TiledEwald:
+    """Batched Ewald with tile-dispatched k-space (``jaxpme.batched_tiled``).
+
+    Built for training on heterogeneous batches: atoms of periodic structures
+    are packed into ``BM``-sized tiles and k-vectors into ``BK``-sized tiles.
+    ``num_k`` is required and sets the real-space cutoff and smearing; the
+    cutoff is not a setting of its own (as in jax-pme and iris).
+    """
+
+    num_k: int
+    BM: int = 32
+    BK: int = 128
+
+    @property
+    def axes(self):
+        # atoms of periodic structures are packed flat, each structure padded
+        # to whole BM tiles; k-vectors are padded to the largest k-grid
+        return {
+            "lr_pairs": ("sum", 1),
+            "pairs_nonpbc": ("sum", 0),
+            "pbc": ("sum", 0),
+            "atoms_pbc": ("sum", 1),
+            "k": ("max", 0),
+        }
+
+    @property
+    def strategies(self):
+        # the k-grid size is known in advance; follow the tile grid
+        return {
+            "k": f"multiples_of_{self.BK}",
+            "atoms_pbc": f"multiples_of_{self.BM}",
+            "lr_pairs": "multiples",
+            "pairs_nonpbc": "multiples",
+        }
+
+    def prepare(self, atoms, cutoff, skin=0.0):
+        # the model cutoff plays no part: the k-grid sets the Ewald parameters
+        return _prepare(atoms, None, self.num_k, skin)
+
+    def sample_shapes(self, structure):
+        from jaxpme.batched_tiled.batching import sample_shapes
+
+        shapes = _sample_shapes(structure)
+        # jax-pme's own accounting: whole BM tiles per periodic structure
+        shapes["atoms_pbc"] = sample_shapes(structure, BM=self.BM)["n_atoms_pbc"]
+        return shapes
+
+    def round(self, axis, size):
+        # the backend pads these to whole tiles regardless
+        tile = {"atoms_pbc": self.BM, "k": self.BK}.get(axis)
+        return size if tile is None else -(-size // tile) * tile
+
+    def validate(self, shapes):
+        for axis, tile in (("atoms_pbc", self.BM), ("k", self.BK)):
+            if shapes[axis] % tile != 0:
+                raise ValueError(f"{axis}={shapes[axis]} must be a multiple of {tile}")
+
+    def array_sizes(self, shapes):
+        return {"k": shapes["pbc"] * shapes["k"], "atoms_pbc": shapes["atoms_pbc"]}
+
+    def batch(self, structures, geometry, shapes):
+        from jaxpme.batched_tiled.batching import get_batch
+
+        return _collate(
+            TiledEwaldInputs,
+            geometry,
+            get_batch(structures, BM=self.BM, BK=self.BK, **_sizes(geometry, shapes)),
+        )
+
+    def info(self, inputs):
+        pbc = inputs.pbc
+        real = {
+            "atoms_pbc": pbc.pbc_atom_mask.sum(),
+            "pbc": pbc.structure_mask.sum(),
+            "k": ((pbc.k_grid != 0).any(axis=-1)).sum(),
+        }
+        total = {
+            "atoms_pbc": pbc.pbc_atom_mask.shape[0],
+            "pbc": pbc.structure_mask.shape[0],
+            "k": pbc.k_grid.shape[0] * pbc.k_grid.shape[1],
+        }
+        shape = {
+            "atoms_pbc": pbc.pbc_atom_mask.shape[0],
+            "pbc": pbc.structure_mask.shape[0],
+            "k": pbc.k_grid.shape[1],
+        }
+        return _merge_info(_pairs_info(inputs), (real, total, shape))
+
+
+def get_kernel(lr_kernel=None):
+    """``lr_kernel``, or the default: Ewald with the model cutoff."""
+    return Ewald() if lr_kernel is None else lr_kernel
+
+
+def potentials(charges, geometry, inputs):
+    """Long-range potentials of ``charges``, by the backend that made ``inputs``."""
+    calculator = _CALCULATORS[type(inputs)]()
+    return calculator.potentials(
+        charges, to_jaxpme(geometry, inputs), inputs.nopbc, inputs.pbc
+    )
+
+
+def to_jaxpme(geometry, inputs):
+    """Rebuild jax-pme's batch: shared geometry plus the kernel's own pairs."""
+    return JaxpmeBatch(
+        positions=geometry.positions,
+        cell=geometry.cell,
+        pbc=geometry.pbc,
+        atom_mask=geometry.atom_mask,
+        structure_mask=geometry.structure_mask,
+        atom_to_structure=geometry.atom_to_structure,
+        # 1D pbc is rejected in `prepare`, so periodic means 2D or 3D
+        pbc_mask=geometry.pbc.any(axis=-1),
+        centers=inputs.centers,
+        others=inputs.others,
+        cell_shifts=inputs.cell_shifts,
+        pair_mask=inputs.pair_mask,
+        pair_to_structure=inputs.pair_to_structure,
+        smearing=inputs.smearing,
+        effective_cell=inputs.effective_cell,
+        distances=None,
+    )
+
+
+def max_cell_shift(inputs):
+    return int(np.abs(np.array(inputs.cell_shifts)).max())
+
+
+def update_effective_cell(inputs, cell, pbc, positions):
+    """Recompute the k-space cell of a single-structure batch after a move.
+
+    For 2D pbc, the vacuum vector is shrunk around the slab, so it follows the
+    positions; for 3D pbc, the k-space cell is the cell itself. Non-periodic
+    structures have no k-space part.
+    """
+    from jaxpme.batched_mixed.batching import shrink_2d_cell
+
+    effective_cell = np.array(inputs.effective_cell)
+    if pbc.sum() == 2:
+        effective_cell[0] = shrink_2d_cell(cell, pbc, positions)
+    elif pbc.all():
+        effective_cell[0] = cell
+    return inputs._replace(effective_cell=effective_cell)
+
+
+# -- helpers --
+
+
+def _prepare(atoms, cutoff, num_k, skin, dtype=np.float32):
+    """Per-structure Ewald inputs, following jax-pme's conventions.
+
+    ``num_k`` sets ``lr_wavelength`` (from the k-space cell); otherwise it is
+    ``cutoff / 8``. Smearing is twice ``lr_wavelength`` and the default
+    real-space cutoff eight times. ``skin`` widens only the neighbor list, so
+    the Ewald split itself does not change. Non-periodic structures get the
+    bare 1/r sum over all pairs and no real-space neighbor list.
+    """
+    from jaxpme.batched_mixed.batching import shrink_2d_cell, to_lr, to_structure
+    from jaxpme.kspace import lr_wavelength_for_num_k
+
+    pbc = atoms.get_pbc()
+
+    if not pbc.any():
+        structure = to_structure(atoms, None, dtype=dtype)
+        _, structure["lr"] = to_lr(structure, None, None)
+        return structure
+
+    cell = atoms.get_cell().array.astype(dtype)
+    if pbc.sum() == 2:
+        effective_cell = shrink_2d_cell(cell, pbc, atoms.get_positions().astype(dtype))
+    else:
+        effective_cell = cell
+
+    if num_k is not None:
+        lr_wavelength = lr_wavelength_for_num_k(effective_cell, num_k)
+        if cutoff is None:
+            cutoff = lr_wavelength * 8.0
+    elif cutoff is not None:
+        lr_wavelength = cutoff / 8.0
+    else:
+        raise ValueError("one of cutoff or num_k is required")
+
+    structure = to_structure(atoms, cutoff + skin, dtype=dtype)
+    structure["effective_cell"] = effective_cell
+    structure["smearing"], structure["lr"] = to_lr(
+        structure, lr_wavelength, lr_wavelength * 2.0
+    )
+
+    return structure
+
+
+def _sample_shapes(structure):
+    lr = structure["lr"]
+    is_pbc = hasattr(lr, "k_grid")
+    return {
+        "lr_pairs": len(structure["centers"]),
+        "pairs_nonpbc": 0 if is_pbc else len(lr.centers),
+        "pbc": int(is_pbc),
+        "k": lr.k_grid.shape[0] if is_pbc else 0,
+    }
+
+
+def _sizes(geometry, shapes):
+    # all sizes fixed: jax-pme only checks that they fit
+    return {
+        "num_structures": geometry.cell.shape[0],
+        "num_atoms": geometry.positions.shape[0],
+        "num_structures_pbc": shapes["pbc"],
+        "num_atoms_pbc": shapes["atoms_pbc"],
+        "num_pairs": shapes["lr_pairs"],
+        "num_pairs_nonpbc": shapes["pairs_nonpbc"],
+        "num_k": shapes["k"],
+    }
+
+
+def _collate(cls, geometry, jaxpme_batch):
+    _, batch, nopbc, pbc = jaxpme_batch
+
+    # jax-pme lays out its own copy of the shared arrays; the LR inputs index
+    # into the shared geometry, so the two layouts have to agree exactly
+    for field in _SHARED_FIELDS:
+        if not np.array_equal(getattr(batch, field), getattr(geometry, field)):
+            raise AssertionError(f"SR and LR layouts disagree on {field}")
+
+    return cls(
+        centers=batch.centers,
+        others=batch.others,
+        cell_shifts=batch.cell_shifts,
+        pair_mask=batch.pair_mask,
+        pair_to_structure=batch.pair_to_structure,
+        smearing=batch.smearing,
+        effective_cell=batch.effective_cell,
+        nopbc=nopbc,
+        pbc=pbc,
+    )
+
+
+def _pairs_info(inputs):
+    real = {
+        "lr_pairs": inputs.pair_mask.sum(),
+        "pairs_nonpbc": inputs.nopbc.pair_mask.sum(),
+    }
+    total = {
+        "lr_pairs": inputs.pair_mask.shape[0],
+        "pairs_nonpbc": inputs.nopbc.centers.shape[0],
+    }
+    return real, total, dict(total)
+
+
+def _merge_info(a, b):
+    return tuple({**x, **y} for x, y in zip(a, b))

@@ -3,8 +3,8 @@ import jax.numpy as jnp
 
 import e3x
 import flax.linen as nn
-from jaxpme.batched_mixed import Ewald
 
+from lorem.longrange import potentials as lr_potentials
 from lorem.models.backbone import (
     MLP,
     Initial,
@@ -47,17 +47,17 @@ class LoremBEC(nn.Module):
     def __call__(
         self,
         Z_i,
+        geometry,
         sr,
-        nopbc,
-        pbc,
+        lr,
     ):
-        R = sr.positions
+        R = geometry.positions
         i = sr.centers
         j = sr.others
-        cell = sr.cell
+        cell = geometry.cell
         cell_shifts = sr.cell_shifts
         pair_mask = sr.pair_mask
-        atom_mask = sr.atom_mask
+        atom_mask = geometry.atom_mask
 
         R_ij = (
             R[j] - R[i] + jnp.einsum("pA,pAa->pa", cell_shifts, cell[sr.pair_to_structure])
@@ -217,9 +217,8 @@ class LoremBEC(nn.Module):
             )(nodes_spherical).reshape(num_atoms, -1)
             charges = jnp.concatenate([scalar_charges, spherical_charges], axis=-1)
 
-            calculator = Ewald()
             potentials = jax.vmap(
-                lambda q: calculator.potentials(q, sr, nopbc, pbc),
+                lambda q: lr_potentials(q, geometry, lr),
                 in_axes=-1,
                 out_axes=-1,
             )(charges)
@@ -261,21 +260,21 @@ class LoremBEC(nn.Module):
         return self.atoms_to_batch(atoms)[:4]
 
     def energy(self, params, batch):
-        sr = batch[1]
+        geometry = batch.geometry
         energies, apt = self.apply(
             params,
             batch.atomic_numbers,
+            batch.geometry,
             batch.sr,
-            batch.nopbc,
-            batch.pbc,
+            batch.lr,
         )
-        energies *= sr.atom_mask
-        apt *= sr.atom_mask[:, None, None]
+        energies *= geometry.atom_mask
+        apt *= geometry.atom_mask[:, None, None]
 
         return jnp.sum(energies), (energies, apt)
 
     def predict(self, params, batch, stress=False, electric_field=None):
-        sr = batch[1]
+        geometry = batch.geometry
 
         energy_and_derivatives_fn = jax.value_and_grad(
             self.energy, allow_int=True, has_aux=True, argnums=1
@@ -283,51 +282,53 @@ class LoremBEC(nn.Module):
         batch_energy_and_aux, grads = energy_and_derivatives_fn(params, batch)
         _, (energies, apt) = batch_energy_and_aux
 
-        grads = grads.sr
+        grads = grads.geometry
 
         # per-structure energies
         energy = (
-            jax.ops.segment_sum(energies, sr.atom_to_structure, sr.cell.shape[0])
-            * sr.structure_mask
+            jax.ops.segment_sum(
+                energies, geometry.atom_to_structure, geometry.cell.shape[0]
+            )
+            * geometry.structure_mask
         )
 
         # forces from position gradients
         forces = -grads.positions
 
         # acoustic sum rule: redistribute excess charge per-structure
-        num_structures = sr.cell.shape[0]
+        num_structures = geometry.cell.shape[0]
         excess_charge = jax.ops.segment_sum(
-            apt, sr.atom_to_structure, num_structures
+            apt, geometry.atom_to_structure, num_structures
         )  # (structures, 3, 3)
         num_atoms_per_structure = jax.ops.segment_sum(
-            sr.atom_mask.astype(apt.dtype),
-            sr.atom_to_structure,
+            geometry.atom_mask.astype(apt.dtype),
+            geometry.atom_to_structure,
             num_structures,
         )  # (structures,)
         charges_to_redistribute = excess_charge / jnp.maximum(
             num_atoms_per_structure[:, None, None], 1.0
         )  # (structures, 3, 3)
-        apt = apt - charges_to_redistribute[sr.atom_to_structure]
-        apt *= sr.atom_mask[:, None, None]
+        apt = apt - charges_to_redistribute[geometry.atom_to_structure]
+        apt *= geometry.atom_mask[:, None, None]
 
         # optional electric field force at inference time
         if electric_field is not None:
             assert electric_field.shape == (3,), "Electric field must be a 3-vector"
-            E_padded = jnp.broadcast_to(electric_field, (sr.positions.shape[0], 3))
+            E_padded = jnp.broadcast_to(electric_field, (geometry.positions.shape[0], 3))
             F_ext = jnp.einsum("...ij,...j->...i", apt, E_padded)
-            forces = forces + F_ext * sr.atom_mask[:, None]
+            forces = forces + F_ext * geometry.atom_mask[:, None]
 
         results = {"energy": energy, "forces": forces, "apt": apt}
 
         if stress:
             stress_tensor = (
                 jax.ops.segment_sum(
-                    jnp.einsum("ia,ib->iab", sr.positions, grads.positions),
-                    sr.atom_to_structure,
-                    num_segments=sr.cell.shape[0],
+                    jnp.einsum("ia,ib->iab", geometry.positions, grads.positions),
+                    geometry.atom_to_structure,
+                    num_segments=geometry.cell.shape[0],
                 )
-                + jnp.einsum("sAa,sAb->sab", sr.cell, grads.cell)
-            ) * sr.structure_mask[:, None, None]
+                + jnp.einsum("sAa,sAb->sab", geometry.cell, grads.cell)
+            ) * geometry.structure_mask[:, None, None]
             results["stress"] = stress_tensor
 
         return results

@@ -45,8 +45,8 @@ def test_inputs_through_sample_and_batch():
 
     batch = to_batch(samples, ["energy"], inputs=INPUTS, properties=PROPERTIES)
 
-    num_structures = batch.sr.cell.shape[0]
-    num_atoms = batch.sr.positions.shape[0]
+    num_structures = batch.geometry.cell.shape[0]
+    num_atoms = batch.geometry.positions.shape[0]
     assert batch.inputs["total_charge"].shape == (num_structures,)
     assert batch.inputs["spins"].shape == (num_atoms,)
 
@@ -57,7 +57,7 @@ def test_inputs_through_sample_and_batch():
 
     # per-atom: same layout as sr.positions, mask matches atom_mask
     np.testing.assert_equal(batch.inputs["spins"][:6], [1.0, -1.0, 0.5, 0, 0, 0])
-    np.testing.assert_array_equal(batch.inputs["spins_mask"], batch.sr.atom_mask)
+    np.testing.assert_array_equal(batch.inputs["spins_mask"], batch.geometry.atom_mask)
 
     assert "total_charge" not in batch.labels
     assert "energy" in batch.labels

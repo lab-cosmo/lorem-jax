@@ -103,6 +103,10 @@ use_wandb: True
 | `test_datasets` | `{}` | Extra test datasets: `{name: [path, save_predictions]}` |
 | `batcher.batch_size` | *required* | Samples per batch |
 | `batcher.size_strategy` | `powers_of_4` | Padding strategy for batch dimensions |
+| `batcher.k_strategy`, `batcher.lr_pairs_strategy` | the kernel's | Padding strategy for k-vectors and long-range pairs |
+| `batcher.max_total_*` | unbounded | Caps on the padded batch arrays: `atoms`, `pairs`, `lr_pairs`, `nobpc_pairs`, `atoms_pbc`, `k` |
+| `batcher.shapes` | none | Fixed shapes for every batch, see [Fixed batch shapes](#fixed-batch-shapes) |
+| `lr_kernel` | `Ewald` at the model cutoff | Long-range kernel for training, see [Long-range kernels](#long-range-kernels) |
 | `loss_weights` | `{"energy": 0.5, "forces": 0.5}` | Per-target loss weights |
 | `scale_by_variance` | `False` | Scale loss weights by validation set variance |
 | `optimizer` | `adam` | Optimizer (`adam`, `muon`, or any optax optimizer) |
@@ -162,6 +166,45 @@ See `examples/train-mlp/` and `examples/train-bec/` for complete examples includ
 | `num_radial` | 32 | Number of radial basis functions |
 | `num_message_passing` | 0 | Number of short-range message passing steps |
 | `lr` | True | Enable long-range (Ewald) interaction |
+
+### Long-range kernels
+
+The long-range part is computed by a kernel from `lorem.longrange`. A kernel has no parameters, only convergence settings, so it is not part of the model: a trained model runs with any kernel, which changes speed and convergence but not the model.
+
+| Kernel | Description |
+|---|---|
+| `Ewald()` | Default. Batched Ewald (`jaxpme.batched_mixed`) with the real-space cutoff at the model cutoff |
+| `Ewald(num_k=...)` | Same backend, with a fixed k-grid size; the real-space cutoff and smearing follow from it, independent of the model cutoff |
+| `TiledEwald(num_k=...)` | Tile-dispatched batched Ewald (`jaxpme.batched_tiled`), for training on heterogeneous batches |
+
+`Ewald` takes either `num_k` or `cutoff=` (the real-space cutoff), not both: with `num_k`, the smearing follows the k-grid, and a smaller cutoff would not converge the real-space sum. For training, set the kernel in `settings.yaml`:
+
+```yaml
+lr_kernel:
+  TiledEwald:
+    num_k: 1000
+```
+
+For inference, `Calculator.from_checkpoint` uses the kernel the model was trained with, and `Ewald()` for checkpoints that did not record one. Pass `lr_kernel=` to use another, e.g. `Calculator.from_checkpoint(folder, lr_kernel=Ewald(num_k=1000))`.
+
+With a fixed `num_k`, the real-space cutoff grows with the cell, and so do the long-range pairs: for large cells, they and the k-grid are the largest arrays in a batch. Each kernel pads them to its own strategy (`TiledEwald` to whole tiles); `batcher.k_strategy` and `batcher.lr_pairs_strategy` override it.
+
+### Fixed batch shapes
+
+By default, each batch is padded to what it holds, so a run compiles once per distinct shape. With `batcher.shapes`, every batch has exactly the given shapes and a run compiles once; samples join a batch while it has room, and a sample that fits no batch raises:
+
+```yaml
+batcher:
+  batch_size: 8          # structures, one of them padding
+  shapes:
+    atoms: 4096          # sum over structures, plus a padding atom
+    pairs: 131072        # short-range pairs, plus a padding pair
+    lr_pairs: 4194304    # Ewald real-space pairs, plus a padding pair
+    pairs_nonpbc: 1      # all-pairs list of non-periodic structures
+    pbc: 4               # periodic structures
+    atoms_pbc: 4096      # Ewald: atoms of the largest periodic structure; TiledEwald: all of them, in whole BM tiles
+    k: 1152              # k-vectors of the largest grid; TiledEwald: a multiple of BK
+```
 
 ## Installing the i-PI driver
 
