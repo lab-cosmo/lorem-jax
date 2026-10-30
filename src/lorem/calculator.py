@@ -107,6 +107,7 @@ class Calculator(BaseCalculator):
         kwargs.setdefault("bec", _model_predicts_bec(model))
         kwargs.setdefault("inputs", getattr(model, "inputs", ()))
         kwargs.setdefault("properties", _checkpoint_properties(folder))
+        kwargs.setdefault("lr_kernel", _checkpoint_lr_kernel(folder))
         return cls(model.predict, species_to_weight, params, model.cutoff, **kwargs)
 
     def update(self, atoms):
@@ -289,6 +290,18 @@ def _checkpoint_properties(folder):
     if properties is None:
         return None
     return {k: {**v, "shape": tuple(v["shape"])} for k, v in properties.items()}
+
+
+def _checkpoint_lr_kernel(folder):
+    # the kernel the model was trained with; None (the default kernel) for runs
+    # that did not set one, or that predate the setting
+    config = folder / "config.yaml"
+    if not config.is_file():
+        return None
+    spec = read_yaml(config).get("training_pipeline", {}).get("lr_kernel")
+    if spec is None:
+        return None
+    return from_dict(spec, default_namespace="lorem.longrange")
 
 
 def _model_predicts_bec(model):

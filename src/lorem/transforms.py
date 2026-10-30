@@ -5,7 +5,14 @@ from marathon.data.properties import DEFAULT_PROPERTIES
 from marathon.grain import Record
 from marathon.grain import ToSample as MarathonToSample
 
-from lorem.batching import to_structure
+from lorem.batching import (
+    check_shapes,
+    needed_shapes,
+    overflow,
+    padded_shapes,
+    to_structure,
+)
+from lorem.batching import sample_shapes as _sample_shapes
 from lorem.longrange import get_kernel
 
 NO_PADDING = ["k", "atoms_pbc", "pbc", "pairs_nonpbc"]
@@ -20,6 +27,16 @@ def ToSample(lr_kernel=None, **kwargs):
 
 @dataclass(frozen=True)
 class ToBatch:
+    """Group samples into batches, sized per axis (see lorem.batching).
+
+    By default, each batch is sized to what it holds: every axis is rounded up
+    by its size strategy, and the max_total_* caps bound what a batch may
+    allocate (axes are clamped to their caps, and k-vectors and periodic atoms
+    are capped as padded arrays). With ``shapes``, every batch has exactly
+    those shapes, so a run compiles once; samples join a batch while they fit,
+    and a sample that fits no batch raises.
+    """
+
     batch_size: int
     keys: tuple = ("energy", "forces")
     inputs: tuple = ()
@@ -28,15 +45,43 @@ class ToBatch:
     size_strategy: str = "powers_of_4"
     fine_strategy: str = "powers_of_2"
     coarse_strategy: str = "powers_of_8"
+    k_strategy: str | None = None  # None: the kernel's default, else size_strategy
+    lr_pairs_strategy: str | None = None  # None: the kernel's, else coarse_strategy
     max_total_k: int = 2**42
     max_total_atoms: int = 2**42
     max_total_pairs: int = 2**42
     max_total_lr_pairs: int = 2**42
     max_total_nobpc_pairs: int = 2**42
+    max_total_atoms_pbc: int = 2**42
+    shapes: dict | None = None  # fixed shapes for every batch, one per axis
     lr_kernel: object = None  # None: lorem.longrange.Ewald()
 
     def __post_init__(self):
         object.__setattr__(self, "lr_kernel", get_kernel(self.lr_kernel))
+        if self.shapes is not None:
+            object.__setattr__(self, "shapes", check_shapes(self.shapes, self.lr_kernel))
+
+    @property
+    def strategies(self):
+        strategies = {
+            "default": self.size_strategy,
+            "fine": self.fine_strategy,
+            "coarse": self.coarse_strategy,
+        }
+        if self.k_strategy is not None:
+            strategies["k"] = self.k_strategy
+        if self.lr_pairs_strategy is not None:
+            strategies["lr_pairs"] = self.lr_pairs_strategy
+        return strategies
+
+    @property
+    def caps(self):
+        return {
+            "atoms": self.max_total_atoms,
+            "pairs": self.max_total_pairs,
+            "lr_pairs": self.max_total_lr_pairs,
+            "pairs_nonpbc": self.max_total_nobpc_pairs,
+        }
 
     def count_samples(self, batch):
         return batch.geometry.structure_mask.sum()
@@ -44,66 +89,55 @@ class ToBatch:
     def info(self, batch):
         return _info(batch, self.lr_kernel)
 
-    def __call__(self, input_iterator):
-        # budgets for sizes that add up over samples; k is budgeted on its own,
-        # since every periodic structure is padded to the largest k-grid
-        budgets = {
-            "atoms": self.max_total_atoms,
-            "pairs": self.max_total_pairs,
-            "lr_pairs": self.max_total_lr_pairs,
-            "pairs_nonpbc": self.max_total_nobpc_pairs,
-        }
+    def batch_shapes(self, sample_shapes):
+        """Shapes of a batch of samples with these shapes (see lorem.batching)."""
+        if self.shapes is not None:
+            return self.shapes
+        needed = needed_shapes(sample_shapes, self.lr_kernel)
+        return padded_shapes(needed, self.strategies, self.lr_kernel, caps=self.caps)
 
-        records, last_meta = [], None
-        totals = dict.fromkeys(budgets, 0)
-        total_pbc_structures = 0
-        max_k = 0
+    def overflow(self, sample_shapes):
+        """Where a batch of these samples would exceed the budget, if anywhere."""
+        too_large = {}
+        if len(sample_shapes) + 1 > self.batch_size:  # +1: the padding structure
+            too_large["structures"] = (len(sample_shapes) + 1, self.batch_size)
+
+        needed = needed_shapes(sample_shapes, self.lr_kernel)
+        if self.shapes is not None:
+            return {**too_large, **overflow(needed, self.shapes)}
+
+        too_large.update(overflow(needed, self.caps))
+        if not too_large:
+            # these are padded per periodic structure, so cap what is allocated
+            allocated = self.lr_kernel.array_sizes(self.batch_shapes(sample_shapes))
+            caps = {"k": self.max_total_k, "atoms_pbc": self.max_total_atoms_pbc}
+            too_large.update(overflow(allocated, caps))
+
+        return too_large
+
+    def __call__(self, input_iterator):
+        records, sample_shapes, last_meta = [], [], None
 
         for rec in input_iterator:
-            structure = rec.data.structure
-            sizes = {
-                "atoms": structure["positions"].shape[0],
-                "pairs": structure["centers"].shape[0],
-                **self.lr_kernel.sample_shapes(structure["lr"]),
-            }
-            ks = sizes["k"]
+            shapes = _sample_shapes(rec.data.structure, self.lr_kernel)
 
-            for key, budget in budgets.items():
-                if sizes[key] > budget:
-                    raise ValueError(f"sample exceeds max {key}: {sizes[key]}>{budget}")
-            if ks > self.max_total_k:
-                raise ValueError(f"sample exceeds max kgrid: {ks}>{self.max_total_k}")
+            if too_large := self.overflow([shapes]):
+                raise ValueError(f"sample exceeds the batch budget: {too_large}")
 
-            # check limits BEFORE appending
-            next_len = len(records) + 1
-            next_pbc = total_pbc_structures + (1 if ks else 0)
-            next_max_k = max(max_k, ks)
-            exceeds = (
-                next_len >= self.batch_size
-                or ((next_pbc * next_max_k) > self.max_total_k)
-                or any(totals[k] + sizes[k] > budget for k, budget in budgets.items())
-            )
-            if records and exceeds:
-                batch = self._batch(records)
+            if records and self.overflow(sample_shapes + [shapes]):
+                batch = self._batch(records, sample_shapes)
                 yield Record(last_meta.remove_record_key(), batch)
-                records, last_meta = [], None
-                totals = dict.fromkeys(budgets, 0)
-                total_pbc_structures = 0
-                max_k = 0
+                records, sample_shapes, last_meta = [], [], None
 
             records.append(rec.data)
+            sample_shapes.append(shapes)
             last_meta = rec.metadata
-            if ks:
-                total_pbc_structures += 1
-                max_k = max(max_k, ks)
-
-            for key in budgets:
-                totals[key] += sizes[key]
 
         if records and not self.drop_remainder:
-            yield Record(last_meta.remove_record_key(), self._batch(records))
+            batch = self._batch(records, sample_shapes)
+            yield Record(last_meta.remove_record_key(), batch)
 
-    def _batch(self, records_to_batch):
+    def _batch(self, records_to_batch, sample_shapes):
         from lorem.batching import to_batch
 
         properties = self.properties if self.properties is not None else DEFAULT_PROPERTIES
@@ -112,11 +146,7 @@ class ToBatch:
             self.keys,
             inputs=self.inputs,
             batch_size=self.batch_size,
-            strategies={
-                "default": self.size_strategy,
-                "fine": self.fine_strategy,
-                "coarse": self.coarse_strategy,
-            },
+            shapes=self.batch_shapes(sample_shapes),
             properties=properties,
             lr_kernel=self.lr_kernel,
         )

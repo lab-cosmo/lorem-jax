@@ -48,6 +48,103 @@ Batch = namedtuple(
     ),
 )
 
+# Batch sizes are per axis. An axis adds up over the samples of a batch either
+# as a total ("sum") or as a width that every structure is padded to ("max"),
+# plus the padding that every batch needs (a padding atom, a padding pair).
+# The long-range kernel declares its own axes on top of these.
+AXES = {
+    "atoms": ("sum", 1),
+    "pairs": ("sum", 1),
+}
+
+# the size strategy an axis follows unless it, or the kernel, says otherwise
+STRATEGY_GROUPS = {
+    "atoms": "default",
+    "pairs": "coarse",
+    "lr_pairs": "coarse",
+    "pairs_nonpbc": "coarse",
+    "pbc": "fine",
+    "atoms_pbc": "default",
+    "k": "default",
+}
+
+
+def sample_shapes(structure, lr_kernel=None):
+    """What one sample adds to each axis of a batch."""
+    return {
+        "atoms": len(structure["positions"]),
+        "pairs": len(structure["centers"]),
+        **get_kernel(lr_kernel).sample_shapes(structure["lr"]),
+    }
+
+
+def needed_shapes(sample_shapes, lr_kernel=None):
+    """The smallest size of each axis that fits samples with these shapes."""
+    axes = {**AXES, **get_kernel(lr_kernel).axes}
+
+    needed = {}
+    for axis, (aggregate, reserve) in axes.items():
+        values = [shapes[axis] for shapes in sample_shapes]
+        total = sum(values) if aggregate == "sum" else max(values, default=0)
+        # every array keeps at least one entry, even with nothing to hold
+        needed[axis] = max(total + reserve, 1)
+
+    return needed
+
+
+def padded_shapes(needed, strategies, lr_kernel=None, caps=None):
+    """Batch shapes for ``needed``: each axis rounded up by its size strategy.
+
+    The strategy of an axis is ``strategies[axis]`` if given, else the kernel's
+    default for it, else the one of its group (see ``STRATEGY_GROUPS``). An
+    axis with a cap is clamped to it; ``needed`` must not exceed the cap.
+    """
+    lr_kernel = get_kernel(lr_kernel)
+    caps = {} if caps is None else caps
+    default = strategies.get("default", "powers_of_2")
+
+    shapes = {}
+    for axis, size in needed.items():
+        strategy = (
+            strategies.get(axis)
+            or lr_kernel.strategies.get(axis)
+            or strategies.get(STRATEGY_GROUPS[axis], default)
+        )
+        size = lr_kernel.round(axis, next_size(size, strategy=strategy))
+        if axis in caps:
+            size = min(size, caps[axis])
+        shapes[axis] = size
+
+    return shapes
+
+
+def overflow(needed, budget):
+    """Axes on which ``needed`` exceeds ``budget``, as {axis: (needed, budget)}."""
+    return {
+        axis: (needed[axis], size)
+        for axis, size in budget.items()
+        if axis in needed and needed[axis] > size
+    }
+
+
+def check_shapes(shapes, lr_kernel=None):
+    """Complete and validate fixed batch shapes."""
+    lr_kernel = get_kernel(lr_kernel)
+
+    # before the split, SR and LR shared one neighbor list
+    shapes = {"lr_pairs": shapes.get("pairs"), **shapes}
+
+    axes = {**AXES, **lr_kernel.axes}
+    missing = sorted(axis for axis in axes if shapes.get(axis) is None)
+    if missing:
+        raise ValueError(f"fixed shapes need every axis, missing: {missing}")
+    small = sorted(axis for axis in axes if shapes[axis] < 1)
+    if small:
+        raise ValueError(f"fixed shapes must be at least 1, got: {small}")
+    lr_kernel.validate(shapes)
+
+    return {axis: int(shapes[axis]) for axis in axes}
+
 
 def to_batch(
     samples,
@@ -69,25 +166,20 @@ def to_batch(
     structures = [sample.structure for sample in samples]
     labels = [sample.labels for sample in samples]
 
-    total_atoms = sum(len(s["positions"]) for s in structures)
-    total_pairs = sum(len(s["centers"]) for s in structures)
-
-    # +1: a padding atom and a padding pair, which padding pairs point to
-    num_structures = batch_size
+    needed = needed_shapes([sample_shapes(s, lr_kernel) for s in structures], lr_kernel)
     if shapes is None:
-        default = strategies.get("default", "powers_of_2")
-        num_atoms = next_size(total_atoms + 1, strategy=default)
-        num_pairs = next_size(total_pairs + 1, strategy=strategies.get("coarse", default))
+        shapes = padded_shapes(needed, strategies, lr_kernel)
     else:
-        num_atoms = next_size(total_atoms + 1, strategy=shapes["atoms"])
-        num_pairs = next_size(total_pairs + 1, strategy=shapes["pairs"])
+        shapes = check_shapes(shapes, lr_kernel)
+        if too_small := overflow(needed, shapes):
+            raise ValueError(f"samples do not fit the shapes: {too_small}")
 
-    geometry, sr = _collate(structures, num_structures, num_atoms, num_pairs)
+    num_structures = batch_size
+    num_atoms = shapes["atoms"]
+    geometry, sr = _collate(structures, num_structures, num_atoms, shapes["pairs"])
 
     # same atom and structure slots, so the LR inputs index the shared geometry
-    lr = lr_kernel.batch(
-        [s["lr"] for s in structures], num_structures, num_atoms, strategies, shapes
-    )
+    lr = lr_kernel.batch([s["lr"] for s in structures], geometry, shapes)
 
     atomic_numbers = np.zeros(num_atoms, dtype=int)
     Z = np.concatenate([s["atomic_numbers"] for s in structures])
